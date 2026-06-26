@@ -27,7 +27,11 @@ data class GameUiState(
     /** True when human player just lost — shows Revenge button */
     val playerJustLost: Boolean      = false,
     /** Non-null when playing a campaign level */
-    val levelNumber: Int?            = null
+    val levelNumber: Int?            = null,
+    /** Vibration haptic on/off */
+    val isVibrationEnabled: Boolean  = true,
+    /** AI's last played line — shown with cyan spotlight for 2 seconds */
+    val aiLastLine: LineId?          = null
 )
 
 data class GameConfig(
@@ -50,6 +54,7 @@ class GameViewModel(
     val uiState: StateFlow<GameUiState> = _ui.asStateFlow()
 
     private var aiJob: Job? = null
+    private var aiGlowJob: Job? = null
     // Prevents init's DataStore restore from overriding an already-started game
     @Volatile private var gameExplicitlyStarted = false
 
@@ -107,9 +112,14 @@ class GameViewModel(
         _ui.update { it.copy(isMuted = muted) }
     }
 
+    fun toggleVibration() {
+        _ui.update { it.copy(isVibrationEnabled = !it.isVibrationEnabled) }
+    }
+
     private fun applyLine(lineId: LineId) {
-        val state = _ui.value.gameState
-        val scored = state.wouldCompleteBox(lineId)
+        val state    = _ui.value.gameState
+        val isAiMove = state.gameMode == GameMode.PVA && state.currentPlayer == PlayerType.TWO
+        val scored   = state.wouldCompleteBox(lineId)
         val newState = drawLine(state, lineId) ?: return
 
         if (scored) sound.playBoxComplete() else sound.playLineDraw()
@@ -122,8 +132,23 @@ class GameViewModel(
             persistStats(newState)
         }
 
-        _ui.update { it.copy(gameState = newState, lastLine = lineId, playerJustLost = humanLost) }
+        _ui.update { it.copy(
+            gameState   = newState,
+            lastLine    = lineId,
+            playerJustLost = humanLost,
+            aiLastLine  = if (isAiMove) lineId else null
+        ) }
         persist(newState)
+
+        // Auto-clear AI move spotlight after 2 seconds
+        if (isAiMove) {
+            aiGlowJob?.cancel()
+            aiGlowJob = viewModelScope.launch {
+                delay(2000L)
+                _ui.update { it.copy(aiLastLine = null) }
+            }
+        }
+
         triggerAiIfNeeded(newState)
     }
 

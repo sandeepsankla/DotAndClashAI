@@ -6,9 +6,10 @@ import java.util.concurrent.TimeUnit
 // ── Board Skins ───────────────────────────────────────────────────────────────
 
 enum class BoardSkin(val displayName: String, val emoji: String) {
-    DEFAULT("Classic", "🎮"),
-    FIRE("Fire",        "🔥"),
-    GOLDEN("Golden",    "✨")
+    DEFAULT ("Classic",       "🎮"),
+    FIRE    ("Fire",          "🔥"),
+    GOLDEN  ("Golden",        "✨"),
+    CONTRAST("High Contrast", "⬛")
 }
 
 // ── Player Level ──────────────────────────────────────────────────────────────

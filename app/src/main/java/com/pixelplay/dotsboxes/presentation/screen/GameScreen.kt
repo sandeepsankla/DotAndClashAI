@@ -56,9 +56,9 @@ fun GameScreen(
     else
         Brush.verticalGradient(listOf(Color(0xFFF2F0FF), Color(0xFFE8E4FF)))
 
-    // Haptic-wrapped line tap
+    // Haptic-wrapped line tap (respects vibration toggle)
     val onLineTapWithHaptic: (LineId) -> Unit = { line ->
-        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        if (ui.isVibrationEnabled) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         viewModel.onLineTapped(line)
     }
 
@@ -98,6 +98,21 @@ fun GameScreen(
                             contentDescription = "Toggle sound"
                         )
                     }
+                    // Vibration toggle
+                    TextButton(
+                        onClick = viewModel::toggleVibration,
+                        colors  = ButtonDefaults.textButtonColors(
+                            contentColor = if (ui.isVibrationEnabled)
+                                Color(0xFF64FFDA)
+                            else
+                                MaterialTheme.colorScheme.onSurface.copy(0.35f)
+                        )
+                    ) {
+                        Text(
+                            if (ui.isVibrationEnabled) "📳" else "📴",
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    }
                     IconButton(onClick = viewModel::restartGame) {
                         Icon(Icons.Default.Refresh, "Restart")
                     }
@@ -134,7 +149,8 @@ fun GameScreen(
                         onLineTap  = onLineTapWithHaptic,
                         modifier   = Modifier.fillMaxWidth(),
                         hintMove   = ui.hintMove,
-                        activeSkin = ui.playerStats.activeSkinEnum
+                        activeSkin = ui.playerStats.activeSkinEnum,
+                        aiLastLine = ui.aiLastLine
                     )
                 }
 

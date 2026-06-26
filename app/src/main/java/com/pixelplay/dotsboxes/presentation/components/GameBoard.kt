@@ -34,20 +34,24 @@ fun GameBoard(
     onLineTap: (LineId) -> Unit,
     modifier: Modifier = Modifier,
     hintMove: LineId? = null,
-    activeSkin: BoardSkin = BoardSkin.DEFAULT
+    activeSkin: BoardSkin = BoardSkin.DEFAULT,
+    aiLastLine: LineId? = null
 ) {
     val isDark = isSystemInDarkTheme()
 
     // Skin-aware player colors
     val (p1Color, p2Color) = when (activeSkin) {
-        BoardSkin.DEFAULT -> Player1Blue    to Player2Orange
-        BoardSkin.FIRE    -> Color(0xFFFF5722) to Color(0xFFFFD600)
-        BoardSkin.GOLDEN  -> Color(0xFFFFD700) to Color(0xFFE040FB)
+        BoardSkin.DEFAULT  -> Player1Blue       to Player2Orange
+        BoardSkin.FIRE     -> Color(0xFFFF5722) to Color(0xFFFFD600)
+        BoardSkin.GOLDEN   -> Color(0xFFFFD700) to Color(0xFFE040FB)
+        BoardSkin.CONTRAST -> Color(0xFFFFFFFF) to Color(0xFFFFFF00)
     }
     val p1BoxFill  = p1Color.copy(alpha = 0.28f)
     val p2BoxFill  = p2Color.copy(alpha = 0.28f)
-    val dotColor   = if (isDark) DotColorDark else DotColor
-    val guideColor = if (isDark) GridGuideDark else GridGuide
+    val dotColor   = if (activeSkin == BoardSkin.CONTRAST) Color.White
+                     else if (isDark) DotColorDark else DotColor
+    val guideColor = if (activeSkin == BoardSkin.CONTRAST) Color(0xFF555555)
+                     else if (isDark) GridGuideDark else GridGuide
 
     var hoverLine by remember { mutableStateOf<LineId?>(null) }
 
@@ -122,6 +126,11 @@ fun GameBoard(
 
         // 3. Drawn lines with glow
         drawDrawnLinesGlow(state, pad, cell, stroke, p1Color, p2Color, glowPulse, animatedLineId, drawProgress)
+
+        // 3b. AI last move cyan spotlight (overlays normal line color)
+        aiLastLine?.let { id ->
+            if (state.isLineDrawn(id)) drawAiLastLine(id, pad, cell, stroke, glowPulse)
+        }
 
         // 4. Hint move golden highlight
         hintMove?.let { id ->
@@ -213,6 +222,22 @@ private fun DrawScope.drawDrawnLinesGlow(
         val id    = LineId(r, c, false)
         drawGlowLine(dot(r, c, pad, cell), dot(r + 1, c, pad, cell),
             if (owner == PlayerType.ONE) p1 else p2, id == animLine, progress)
+    }
+}
+
+private fun DrawScope.drawAiLastLine(id: LineId, pad: Float, cell: Float, stroke: Float, pulse: Float) {
+    val cyan  = Color(0xFF00E5FF)
+    val (start, end) = lineEndpoints(id, pad, cell)
+    // Outer soft glow on line
+    drawLine(cyan.copy(alpha = pulse * 0.30f), start, end, stroke * 4.5f, StrokeCap.Round)
+    drawLine(cyan.copy(alpha = pulse * 0.55f), start, end, stroke * 2.2f, StrokeCap.Round)
+    // Bright core overlay
+    drawLine(cyan.copy(alpha = 0.90f),         start, end, stroke * 1.1f, StrokeCap.Round)
+    // Pulsing rings at both endpoints (the "arrow" feel)
+    for (pt in listOf(start, end)) {
+        drawCircle(cyan.copy(alpha = pulse * 0.25f), stroke * 3.5f, pt)
+        drawCircle(cyan.copy(alpha = pulse * 0.55f), stroke * 2.0f, pt)
+        drawCircle(cyan.copy(alpha = 0.85f),         stroke * 1.0f, pt)
     }
 }
 

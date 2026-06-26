@@ -495,8 +495,10 @@ private fun StatsCard(stats: PlayerStats, onSkinSelected: (BoardSkin) -> Unit) {
                 3 -> DifficultyStatsRow(stats.diffStats(Difficulty.HARD), Player2Orange)
             }
 
-            // ── Skin selector (only if skins beyond DEFAULT unlocked) ──────────
-            val unlockedSkins = BoardSkin.entries.filter { stats.unlockedSkins.contains(it.name) }
+            // ── Skin selector — CONTRAST always free, others via streak unlock ──
+            val unlockedSkins = BoardSkin.entries.filter {
+                it == BoardSkin.CONTRAST || stats.unlockedSkins.contains(it.name)
+            }
             if (unlockedSkins.size > 1) {
                 HorizontalDivider(
                     modifier = Modifier.padding(top = 12.dp),
@@ -518,14 +520,16 @@ private fun StatsCard(stats: PlayerStats, onSkinSelected: (BoardSkin) -> Unit) {
                             label    = { Text("${skin.emoji} ${skin.displayName}", fontSize = 12.sp) },
                             colors   = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = when (skin) {
-                                    BoardSkin.FIRE   -> Color(0xFFFF5722).copy(alpha = 0.2f)
-                                    BoardSkin.GOLDEN -> Color(0xFFFFD700).copy(alpha = 0.2f)
-                                    else             -> MaterialTheme.colorScheme.primaryContainer
+                                    BoardSkin.FIRE     -> Color(0xFFFF5722).copy(alpha = 0.2f)
+                                    BoardSkin.GOLDEN   -> Color(0xFFFFD700).copy(alpha = 0.2f)
+                                    BoardSkin.CONTRAST -> Color(0xFF212121)
+                                    else               -> MaterialTheme.colorScheme.primaryContainer
                                 },
                                 selectedLabelColor = when (skin) {
-                                    BoardSkin.FIRE   -> Color(0xFFFF5722)
-                                    BoardSkin.GOLDEN -> Color(0xFFFFD700)
-                                    else             -> MaterialTheme.colorScheme.onPrimaryContainer
+                                    BoardSkin.FIRE     -> Color(0xFFFF5722)
+                                    BoardSkin.GOLDEN   -> Color(0xFFFFD700)
+                                    BoardSkin.CONTRAST -> Color(0xFFFFFFFF)
+                                    else               -> MaterialTheme.colorScheme.onPrimaryContainer
                                 }
                             )
                         )
