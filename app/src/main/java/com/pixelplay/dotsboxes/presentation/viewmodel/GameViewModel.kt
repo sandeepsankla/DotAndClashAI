@@ -25,7 +25,9 @@ data class GameUiState(
     val hintMove: LineId?            = null,
     val showEarnHintsDialog: Boolean = false,
     /** True when human player just lost — shows Revenge button */
-    val playerJustLost: Boolean      = false
+    val playerJustLost: Boolean      = false,
+    /** Non-null when playing a campaign level */
+    val levelNumber: Int?            = null
 )
 
 data class GameConfig(
@@ -33,7 +35,8 @@ data class GameConfig(
     val mode: GameMode,
     val difficulty: Difficulty,
     val p1Name: String,
-    val p2Name: String
+    val p2Name: String,
+    val levelNumber: Int? = null
 )
 
 class GameViewModel(
@@ -78,7 +81,7 @@ class GameViewModel(
             p1Name     = config.p1Name,
             p2Name     = config.p2Name
         )
-        _ui.update { it.copy(gameState = state, isAiThinking = false, lastLine = null, playerJustLost = false, hintMove = null) }
+        _ui.update { it.copy(gameState = state, isAiThinking = false, lastLine = null, playerJustLost = false, hintMove = null, levelNumber = config.levelNumber) }
         persist(state)
         triggerAiIfNeeded(state)
     }
@@ -130,11 +133,16 @@ class GameViewModel(
             finishedState.winner == PlayerType.ONE -> GameResult.WIN
             else -> GameResult.LOSE
         }
-        // Only track difficulty stats in PvA mode (player vs AI)
         val difficulty = if (finishedState.gameMode == GameMode.PVA) finishedState.difficulty else null
+        val currentLevel = _ui.value.levelNumber
         viewModelScope.launch {
             val current = repository.observeStats().first()
-            repository.saveStats(current.afterResult(result, difficulty))
+            var updated = current.afterResult(result, difficulty)
+            // Campaign level complete — unlock next level, award hint bonus
+            if (result == GameResult.WIN && currentLevel != null) {
+                updated = updated.afterLevelComplete(currentLevel)
+            }
+            repository.saveStats(updated)
         }
     }
 

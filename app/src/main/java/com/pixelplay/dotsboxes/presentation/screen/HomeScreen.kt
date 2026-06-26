@@ -36,6 +36,7 @@ fun HomeScreen(
     playerStats: PlayerStats,
     pendingDailyReward: DailyLoginInfo?,
     onRewardDismissed: () -> Unit,
+    onCampaign: () -> Unit,
     onSkinSelected: (BoardSkin) -> Unit,
     onStartGame: (GameConfig) -> Unit
 ) {
@@ -120,9 +121,27 @@ fun HomeScreen(
             // ── Level + XP bar ────────────────────────────────────────────────
             LevelXpCard(stats = playerStats)
 
+            // ── Campaign button ───────────────────────────────────────────────
+            CampaignCard(stats = playerStats, onClick = onCampaign)
+
             // ── Stats Card ────────────────────────────────────────────────────
             if (playerStats.totalGames > 0) {
                 StatsCard(stats = playerStats, onSkinSelected = onSkinSelected)
+            }
+
+            // ── Divider between campaign and custom game ──────────────────────
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                HorizontalDivider(modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.outline.copy(0.25f))
+                Text(
+                    "Custom Game",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onBackground.copy(0.4f)
+                )
+                HorizontalDivider(modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.outline.copy(0.25f))
             }
 
             // ── Setup Card ───────────────────────────────────────────────────
@@ -279,6 +298,117 @@ fun HomeScreen(
                 info      = pendingDailyReward,
                 onDismiss = onRewardDismissed
             )
+        }
+    }
+}
+
+// ── Campaign card ─────────────────────────────────────────────────────────────
+
+@Composable
+private fun CampaignCard(stats: PlayerStats, onClick: () -> Unit) {
+    val completed    = stats.levelsCompleted.size
+    val total        = com.pixelplay.dotsboxes.domain.model.CAMPAIGN_LEVELS.size
+    val nextLvl      = com.pixelplay.dotsboxes.domain.model.CAMPAIGN_LEVELS
+        .getOrNull(stats.highestLevelUnlocked - 1)
+    val isAllDone    = completed >= total
+    val progress     = completed.toFloat() / total
+
+    Card(
+        onClick   = onClick,
+        modifier  = Modifier.fillMaxWidth(),
+        shape     = RoundedCornerShape(20.dp),
+        colors    = CardDefaults.cardColors(containerColor = Color.Transparent),
+        elevation = CardDefaults.cardElevation(0.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.horizontalGradient(listOf(Purple40.copy(0.85f), Player1Blue.copy(0.85f))),
+                    RoundedCornerShape(20.dp)
+                )
+                .padding(18.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            if (isAllDone) "🏆 All Levels Complete!" else "🎮 Campaign Mode",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White
+                            )
+                        )
+                        if (!isAllDone && nextLvl != null) {
+                            Text(
+                                "Next: LV ${nextLvl.number} — ${nextLvl.title} ${nextLvl.emoji}",
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = Color.White.copy(0.8f)
+                                )
+                            )
+                        } else if (isAllDone) {
+                            Text(
+                                "You're a Legend! Play again anytime",
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = Color.White.copy(0.8f)
+                                )
+                            )
+                        }
+                    }
+                    // Stars badge
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("⭐", fontSize = 26.sp)
+                        Text(
+                            "$completed/$total",
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFFFFD700)
+                            )
+                        )
+                    }
+                }
+                // Progress bar
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(50))
+                        .background(Color.White.copy(alpha = 0.25f))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(progress.coerceIn(0f, 1f))
+                            .fillMaxHeight()
+                            .background(
+                                Brush.horizontalGradient(listOf(Color(0xFFFFD700), Color(0xFFFFAB00))),
+                                androidx.compose.foundation.shape.RoundedCornerShape(50)
+                            )
+                    )
+                }
+                // CTA row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = Color.White.copy(alpha = 0.22f)
+                    ) {
+                        Text(
+                            if (completed == 0) "Start  ▶" else "Continue  ▶",
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                color = Color.White,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        )
+                    }
+                }
+            }
         }
     }
 }

@@ -87,7 +87,10 @@ data class PlayerStats(
     // Dynamic difficulty — consecutive Hard losses
     val consecutiveLossesHard: Int = 0,
     // Achievement badges
-    val badges: Set<String>        = emptySet()
+    val badges: Set<String>        = emptySet(),
+    // Campaign progress
+    val highestLevelUnlocked: Int  = 1,
+    val levelsCompleted: Set<Int>  = emptySet()
 ) {
     // ── Computed helpers ──────────────────────────────────────────────────────
 
@@ -188,6 +191,19 @@ data class PlayerStats(
     fun earnHints(n: Int): PlayerStats      = copy(hintCoins = hintCoins + n)
     fun withActiveSkin(skin: BoardSkin): PlayerStats = copy(activeSkin = skin.name)
 
+    // ── Campaign ──────────────────────────────────────────────────────────────
+
+    fun afterLevelComplete(levelNumber: Int): PlayerStats {
+        val cfg  = CAMPAIGN_LEVELS.getOrNull(levelNumber - 1)
+        val next = levelNumber + 1
+        return copy(
+            levelsCompleted      = levelsCompleted + levelNumber,
+            highestLevelUnlocked = if (next <= CAMPAIGN_LEVELS.size)
+                maxOf(highestLevelUnlocked, next) else highestLevelUnlocked,
+            hintCoins            = hintCoins + (cfg?.hintBonus ?: 0)
+        )
+    }
+
     // ── Private: milestone table ──────────────────────────────────────────────
 
     private data class MilestoneReward(val hintCoins: Int, val skin: BoardSkin?, val badge: String?)
@@ -204,6 +220,30 @@ data class PlayerStats(
 }
 
 enum class GameResult { WIN, LOSE, TIE }
+
+// ── Campaign level definitions ────────────────────────────────────────────────
+
+data class LevelConfig(
+    val number: Int,
+    val title: String,
+    val emoji: String,
+    val gridSize: Int,
+    val difficulty: Difficulty,
+    val hintBonus: Int = 0
+)
+
+val CAMPAIGN_LEVELS: List<LevelConfig> = listOf(
+    LevelConfig(1,  "Baby Steps",   "🐣", 3, Difficulty.EASY,   0),
+    LevelConfig(2,  "Warming Up",   "🌱", 3, Difficulty.EASY,   0),
+    LevelConfig(3,  "Getting Real", "⚡", 4, Difficulty.EASY,   1),
+    LevelConfig(4,  "Challenge",    "🎯", 4, Difficulty.MEDIUM, 0),
+    LevelConfig(5,  "Mind Games",   "🧩", 4, Difficulty.MEDIUM, 1),
+    LevelConfig(6,  "Big Board",    "🔥", 5, Difficulty.MEDIUM, 1),
+    LevelConfig(7,  "Clash Mode",   "⚔️", 5, Difficulty.HARD,  1),
+    LevelConfig(8,  "No Mercy",     "💀", 5, Difficulty.HARD,  2),
+    LevelConfig(9,  "Master Class", "💎", 6, Difficulty.HARD,  2),
+    LevelConfig(10, "LEGEND",       "👑", 6, Difficulty.HARD,  3)
+)
 
 // ── Enums ────────────────────────────────────────────────────────────────────
 

@@ -28,12 +28,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import com.pixelplay.dotsboxes.domain.model.Difficulty
-import com.pixelplay.dotsboxes.domain.model.GameMode
-import com.pixelplay.dotsboxes.domain.model.GameState
-import com.pixelplay.dotsboxes.domain.model.LineId
-import com.pixelplay.dotsboxes.domain.model.PlayerStats
-import com.pixelplay.dotsboxes.domain.model.PlayerType
+import com.pixelplay.dotsboxes.domain.model.*
 import com.pixelplay.dotsboxes.presentation.components.GameBoard
 import com.pixelplay.dotsboxes.presentation.components.ScoreBoard
 import com.pixelplay.dotsboxes.presentation.theme.*
@@ -46,7 +41,8 @@ import com.pixelplay.dotsboxes.presentation.viewmodel.GameViewModel
 fun GameScreen(
     viewModel: GameViewModel,
     config: GameConfig,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onNextLevel: (() -> Unit)? = null
 ) {
     val ui by viewModel.uiState.collectAsState()
     val isDark = isSystemInDarkTheme()
@@ -157,11 +153,13 @@ fun GameScreen(
 
             if (ui.gameState.isGameOver) {
                 WinDialog(
-                    gameState       = ui.gameState,
-                    playerStats     = ui.playerStats,
-                    playerJustLost  = ui.playerJustLost,
-                    onRestart       = viewModel::restartGame,
-                    onMainMenu      = onNavigateBack
+                    gameState      = ui.gameState,
+                    playerStats    = ui.playerStats,
+                    playerJustLost = ui.playerJustLost,
+                    levelNumber    = ui.levelNumber,
+                    onRestart      = viewModel::restartGame,
+                    onNextLevel    = onNextLevel,
+                    onMainMenu     = onNavigateBack
                 )
             }
 
@@ -247,13 +245,18 @@ private fun WinDialog(
     gameState: GameState,
     playerStats: PlayerStats,
     playerJustLost: Boolean,
+    levelNumber: Int?,
     onRestart: () -> Unit,
+    onNextLevel: (() -> Unit)?,
     onMainMenu: () -> Unit
 ) {
-    val winner     = gameState.winner
-    val isTie      = winner == null
-    val winnerName = winner?.let { gameState.playerName(it) }
-    val context    = LocalContext.current
+    val winner      = gameState.winner
+    val isTie       = winner == null
+    val winnerName  = winner?.let { gameState.playerName(it) }
+    val playerWon   = winner == PlayerType.ONE
+    val isCampaign  = levelNumber != null
+    val isLastLevel = levelNumber == CAMPAIGN_LEVELS.size
+    val context     = LocalContext.current
 
     Dialog(onDismissRequest = {}) {
         Card(
@@ -305,35 +308,68 @@ private fun WinDialog(
                     }
                 }
 
-                Button(
-                    onClick  = onRestart,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape    = RoundedCornerShape(50),
-                    colors   = ButtonDefaults.buttonColors(
-                        containerColor = Color.Transparent,
-                        contentColor   = Color.White
-                    ),
-                    contentPadding = PaddingValues(0.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .background(
-                                if (playerJustLost)
-                                    Brush.horizontalGradient(listOf(Color(0xFFFF3D00), Color(0xFFFF9800)))
-                                else
-                                    Brush.horizontalGradient(listOf(Purple40, Indigo40)),
-                                RoundedCornerShape(50)
-                            ),
-                        contentAlignment = Alignment.Center
+                // Primary action button
+                if (isCampaign && playerWon && onNextLevel != null) {
+                    // Campaign win — Next Level or All Done
+                    Button(
+                        onClick  = if (isLastLevel) onMainMenu else onNextLevel,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape    = RoundedCornerShape(50),
+                        colors   = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                        contentPadding = PaddingValues(0.dp)
                     ) {
-                        Text(
-                            if (playerJustLost) "🔥  Revenge!" else "⚡  Play Again",
-                            style = MaterialTheme.typography.labelLarge.copy(
-                                fontSize = 16.sp, color = Color.White, fontWeight = FontWeight.Bold
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .background(
+                                    Brush.horizontalGradient(listOf(Color(0xFFFFD700), Color(0xFFFF9800))),
+                                    RoundedCornerShape(50)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                if (isLastLevel) "👑  You're a LEGEND!" else "Next Level  →",
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontSize = 16.sp, color = Color(0xFF3E2000), fontWeight = FontWeight.ExtraBold
+                                )
                             )
-                        )
+                        }
+                    }
+                } else {
+                    // Custom game or campaign loss — Play Again / Revenge
+                    Button(
+                        onClick  = onRestart,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape    = RoundedCornerShape(50),
+                        colors   = ButtonDefaults.buttonColors(
+                            containerColor = Color.Transparent,
+                            contentColor   = Color.White
+                        ),
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .background(
+                                    if (playerJustLost)
+                                        Brush.horizontalGradient(listOf(Color(0xFFFF3D00), Color(0xFFFF9800)))
+                                    else
+                                        Brush.horizontalGradient(listOf(Purple40, Indigo40)),
+                                    RoundedCornerShape(50)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                if (isCampaign && !playerWon) "🔄  Retry Level"
+                                else if (playerJustLost) "🔥  Revenge!"
+                                else "⚡  Play Again",
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontSize = 16.sp, color = Color.White, fontWeight = FontWeight.Bold
+                                )
+                            )
+                        }
                     }
                 }
 
