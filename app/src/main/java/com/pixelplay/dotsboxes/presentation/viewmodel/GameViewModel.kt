@@ -31,7 +31,9 @@ data class GameUiState(
     /** Vibration haptic on/off */
     val isVibrationEnabled: Boolean  = true,
     /** AI's last played line — shown with cyan spotlight for 2 seconds */
-    val aiLastLine: LineId?          = null
+    val aiLastLine: LineId?          = null,
+    /** Move countdown for timed levels (Level 8); null = no timer */
+    val moveTimerSeconds: Int?       = null
 )
 
 data class GameConfig(
@@ -55,6 +57,8 @@ class GameViewModel(
 
     private var aiJob: Job? = null
     private var aiGlowJob: Job? = null
+    private var timerJob: Job? = null
+    private var tutorialJob: Job? = null
     // Prevents init's DataStore restore from overriding an already-started game
     @Volatile private var gameExplicitlyStarted = false
 
@@ -79,6 +83,8 @@ class GameViewModel(
     fun startNewGame(config: GameConfig) {
         gameExplicitlyStarted = true
         aiJob?.cancel()
+        timerJob?.cancel()
+        tutorialJob?.cancel()
         val state = newGame(
             gridSize   = config.gridSize,
             mode       = config.mode,
@@ -86,9 +92,23 @@ class GameViewModel(
             p1Name     = config.p1Name,
             p2Name     = config.p2Name
         )
-        _ui.update { it.copy(gameState = state, isAiThinking = false, lastLine = null, playerJustLost = false, hintMove = null, levelNumber = config.levelNumber) }
+        _ui.update { it.copy(
+            gameState          = state,
+            isAiThinking       = false,
+            lastLine           = null,
+            playerJustLost     = false,
+            hintMove           = null,
+            levelNumber        = config.levelNumber,
+            aiLastLine         = null,
+            moveTimerSeconds   = null
+        ) }
         persist(state)
         triggerAiIfNeeded(state)
+        // Level 1: tutorial auto-hints; Level 8: move timer
+        if (state.gameMode == GameMode.PVA && state.currentPlayer == PlayerType.ONE) {
+            startMoveTimerIfNeeded()
+            startTutorialHintIfNeeded()
+        }
     }
 
     fun onLineTapped(lineId: LineId) {
@@ -117,6 +137,11 @@ class GameViewModel(
     }
 
     private fun applyLine(lineId: LineId) {
+        // Cancel any running timer/tutorial — player acted
+        timerJob?.cancel()
+        tutorialJob?.cancel()
+        _ui.update { it.copy(moveTimerSeconds = null) }
+
         val state    = _ui.value.gameState
         val isAiMove = state.gameMode == GameMode.PVA && state.currentPlayer == PlayerType.TWO
         val scored   = state.wouldCompleteBox(lineId)
@@ -133,10 +158,11 @@ class GameViewModel(
         }
 
         _ui.update { it.copy(
-            gameState   = newState,
-            lastLine    = lineId,
+            gameState      = newState,
+            lastLine       = lineId,
             playerJustLost = humanLost,
-            aiLastLine  = if (isAiMove) lineId else null
+            aiLastLine     = if (isAiMove) lineId else null,
+            hintMove       = null
         ) }
         persist(newState)
 
@@ -150,6 +176,14 @@ class GameViewModel(
         }
 
         triggerAiIfNeeded(newState)
+
+        // After AI move, if now human's turn start timer/tutorial again
+        if (!newState.isGameOver &&
+            newState.gameMode == GameMode.PVA &&
+            newState.currentPlayer == PlayerType.ONE) {
+            startMoveTimerIfNeeded()
+            startTutorialHintIfNeeded()
+        }
     }
 
     private fun persistStats(finishedState: GameState) {
@@ -213,6 +247,52 @@ class GameViewModel(
     }
 
     fun dismissEarnHintsDialog() = _ui.update { it.copy(showEarnHintsDialog = false) }
+
+    // ── Move timer (Level 8 — 15s per move) ───────────────────────────────────
+
+    private fun startMoveTimerIfNeeded() {
+        val lvl    = _ui.value.levelNumber ?: return
+        val config = levelConfigFor(lvl)
+        val limit  = config.timeLimitSeconds ?: return
+        val state  = _ui.value.gameState
+        if (state.isGameOver || state.currentPlayer != PlayerType.ONE) return
+
+        timerJob?.cancel()
+        timerJob = viewModelScope.launch {
+            for (s in limit downTo 0) {
+                _ui.update { it.copy(moveTimerSeconds = s) }
+                if (s == 0) {
+                    // Time's up — auto-play a random safe move
+                    val cur  = _ui.value.gameState
+                    val safe = cur.undrawnLines().filter { !cur.wouldGiveOpponent3Sides(it) }
+                    val auto = (safe.ifEmpty { cur.undrawnLines() }).randomOrNull()
+                    auto?.let { applyLine(it) }
+                    break
+                }
+                delay(1000L)
+            }
+            _ui.update { it.copy(moveTimerSeconds = null) }
+        }
+    }
+
+    // ── Tutorial auto-hint (Level 1 — free hint each human turn) ─────────────
+
+    private fun startTutorialHintIfNeeded() {
+        val lvl    = _ui.value.levelNumber ?: return
+        val config = levelConfigFor(lvl)
+        if (!config.hasTutorial) return
+        val state = _ui.value.gameState
+        if (state.isGameOver || state.currentPlayer != PlayerType.ONE) return
+
+        tutorialJob?.cancel()
+        tutorialJob = viewModelScope.launch {
+            delay(600L)  // Let player see the board first
+            val hint = HardAI().getBestMove(_ui.value.gameState) ?: return@launch
+            _ui.update { it.copy(hintMove = hint) }
+            delay(3000L)
+            _ui.update { it.copy(hintMove = null) }
+        }
+    }
 
     private fun triggerAiIfNeeded(state: GameState) {
         if (state.isGameOver) return

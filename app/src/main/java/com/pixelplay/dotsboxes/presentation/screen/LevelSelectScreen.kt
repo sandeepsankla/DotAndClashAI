@@ -233,14 +233,19 @@ private fun LevelCard(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         BadgeChip("${level.gridSize}×${level.gridSize}", MaterialTheme.colorScheme.outline.copy(0.5f))
-                        BadgeChip(
-                            when (level.difficulty) {
-                                Difficulty.EASY   -> "Easy"
-                                Difficulty.MEDIUM -> "Medium"
-                                Difficulty.HARD   -> "Hard"
-                            },
-                            diffColor
-                        )
+                        // Special feature badge
+                        when {
+                            level.hasTutorial        -> BadgeChip("📚 Tutorial", Color(0xFF64B5F6))
+                            level.timeLimitSeconds != null -> BadgeChip("⏱ ${level.timeLimitSeconds}s", Color(0xFFF44336))
+                            else -> BadgeChip(
+                                when (level.difficulty) {
+                                    Difficulty.EASY   -> "Easy"
+                                    Difficulty.MEDIUM -> "Medium"
+                                    Difficulty.HARD   -> "Hard"
+                                },
+                                diffColor
+                            )
+                        }
                     }
                 } else {
                     Spacer(Modifier.height(20.dp))

@@ -17,6 +17,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -137,6 +138,18 @@ fun GameScreen(
             ) {
                 ScoreBoard(state = ui.gameState, isAiThinking = ui.isAiThinking)
 
+                // ── Move timer (Level 8 — 15s countdown) ─────────────────────
+                if (ui.moveTimerSeconds != null && !ui.gameState.isGameOver) {
+                    MoveTimerBar(seconds = ui.moveTimerSeconds!!, limit = 15)
+                }
+
+                // ── Tutorial banner (Level 1) ─────────────────────────────────
+                if (config.levelNumber == 1 &&
+                    !ui.gameState.isGameOver &&
+                    ui.gameState.currentPlayer == PlayerType.ONE) {
+                    TutorialBanner()
+                }
+
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -187,6 +200,86 @@ fun GameScreen(
                     onDismiss    = viewModel::dismissEarnHintsDialog
                 )
             }
+        }
+    }
+}
+
+// ── Move timer bar ────────────────────────────────────────────────────────────
+
+@Composable
+private fun MoveTimerBar(seconds: Int, limit: Int) {
+    val fraction = (seconds.toFloat() / limit).coerceIn(0f, 1f)
+    val color = when {
+        fraction > 0.6f -> Color(0xFF4CAF50)
+        fraction > 0.3f -> Color(0xFFFF9800)
+        else            -> Color(0xFFF44336)
+    }
+    // Pulse red when almost out of time
+    val pulse by rememberInfiniteTransition(label = "timer").animateFloat(
+        initialValue  = 1f,
+        targetValue   = if (seconds <= 5) 0.5f else 1f,
+        animationSpec = infiniteRepeatable(tween(400), RepeatMode.Reverse),
+        label         = "timerPulse"
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            "⏱ $seconds",
+            style = MaterialTheme.typography.labelLarge.copy(
+                color      = color.copy(alpha = pulse),
+                fontWeight = FontWeight.ExtraBold
+            ),
+            modifier = Modifier.width(52.dp)
+        )
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(8.dp)
+                .clip(RoundedCornerShape(50))
+                .background(color.copy(alpha = 0.2f))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(fraction)
+                    .fillMaxHeight()
+                    .background(
+                        Brush.horizontalGradient(listOf(color, color.copy(0.7f))),
+                        RoundedCornerShape(50)
+                    )
+            )
+        }
+    }
+}
+
+// ── Tutorial banner (Level 1) ─────────────────────────────────────────────────
+
+@Composable
+private fun TutorialBanner() {
+    Card(
+        shape  = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color(0xFF1A237E).copy(alpha = 0.75f)
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("💡", fontSize = 18.sp)
+            Text(
+                "Golden line = best move! Watch & learn.",
+                style = MaterialTheme.typography.bodySmall.copy(
+                    color = Color.White,
+                    fontWeight = FontWeight.Medium
+                )
+            )
         }
     }
 }
@@ -266,13 +359,14 @@ private fun WinDialog(
     onNextLevel: (() -> Unit)?,
     onMainMenu: () -> Unit
 ) {
-    val winner      = gameState.winner
-    val isTie       = winner == null
-    val winnerName  = winner?.let { gameState.playerName(it) }
-    val playerWon   = winner == PlayerType.ONE
-    val isCampaign  = levelNumber != null
-    val isLastLevel = levelNumber == CAMPAIGN_LEVELS.size
-    val context     = LocalContext.current
+    val winner         = gameState.winner
+    val isTie          = winner == null
+    val winnerName     = winner?.let { gameState.playerName(it) }
+    val playerWon      = winner == PlayerType.ONE
+    val isCampaign     = levelNumber != null
+    val isInfiniteLevel = levelNumber != null && levelNumber > CAMPAIGN_LEVELS.size
+    val isGatewayLevel  = levelNumber == CAMPAIGN_LEVELS.size   // Level 10 → unlocks infinite
+    val context        = LocalContext.current
 
     Dialog(onDismissRequest = {}) {
         Card(
@@ -326,12 +420,12 @@ private fun WinDialog(
 
                 // Primary action button
                 if (isCampaign && playerWon && onNextLevel != null) {
-                    // Campaign win — Next Level or All Done
+                    // Campaign / Infinite win — Next Level button
                     Button(
-                        onClick  = if (isLastLevel) onMainMenu else onNextLevel,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape    = RoundedCornerShape(50),
-                        colors   = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                        onClick        = onNextLevel,
+                        modifier       = Modifier.fillMaxWidth(),
+                        shape          = RoundedCornerShape(50),
+                        colors         = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
                         contentPadding = PaddingValues(0.dp)
                     ) {
                         Box(
@@ -339,15 +433,25 @@ private fun WinDialog(
                                 .fillMaxWidth()
                                 .height(48.dp)
                                 .background(
-                                    Brush.horizontalGradient(listOf(Color(0xFFFFD700), Color(0xFFFF9800))),
+                                    when {
+                                        isInfiniteLevel -> Brush.horizontalGradient(listOf(Color(0xFF00BCD4), Color(0xFF7C4DFF)))
+                                        isGatewayLevel  -> Brush.horizontalGradient(listOf(Color(0xFFFFD700), Color(0xFFFF6F00)))
+                                        else            -> Brush.horizontalGradient(listOf(Color(0xFFFFD700), Color(0xFFFF9800)))
+                                    },
                                     RoundedCornerShape(50)
                                 ),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                if (isLastLevel) "👑  You're a LEGEND!" else "Next Level  →",
+                                when {
+                                    isInfiniteLevel -> "♾️  Next Infinity Level"
+                                    isGatewayLevel  -> "👑  Enter Infinite Mode!"
+                                    else            -> "Next Level  →"
+                                },
                                 style = MaterialTheme.typography.labelLarge.copy(
-                                    fontSize = 16.sp, color = Color(0xFF3E2000), fontWeight = FontWeight.ExtraBold
+                                    fontSize = 16.sp,
+                                    color    = if (isInfiniteLevel) Color.White else Color(0xFF3E2000),
+                                    fontWeight = FontWeight.ExtraBold
                                 )
                             )
                         }

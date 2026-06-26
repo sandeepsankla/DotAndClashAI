@@ -122,23 +122,21 @@ fun AppNavigation() {
                 levelNumber = levelArg
             )
 
-            // Compute next-level callback for campaign mode
+            // Always allow next level (campaign 1-10 → then infinite 11, 12, ...)
             val onNextLevel: (() -> Unit)? = levelArg?.let { lvl ->
-                if (lvl < CAMPAIGN_LEVELS.size) {
-                    {
-                        val next = CAMPAIGN_LEVELS[lvl] // lvl is 1-based, index = lvl
-                        navController.navigate(
-                            Screen.Game.buildRoute(
-                                gridSize   = next.gridSize,
-                                mode       = GameMode.PVA,
-                                difficulty = next.difficulty,
-                                p1         = config.p1Name,
-                                p2         = "AI",
-                                level      = next.number
-                            )
-                        ) { popUpTo(Screen.Game.route) { inclusive = true } }
-                    }
-                } else null
+                {
+                    val next = levelConfigFor(lvl + 1)
+                    navController.navigate(
+                        Screen.Game.buildRoute(
+                            gridSize   = next.gridSize,
+                            mode       = GameMode.PVA,
+                            difficulty = next.difficulty,
+                            p1         = config.p1Name,
+                            p2         = "AI",
+                            level      = next.number
+                        )
+                    ) { popUpTo(Screen.Game.route) { inclusive = true } }
+                }
             }
 
             GameScreen(

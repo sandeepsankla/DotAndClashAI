@@ -199,8 +199,8 @@ data class PlayerStats(
         val next = levelNumber + 1
         return copy(
             levelsCompleted      = levelsCompleted + levelNumber,
-            highestLevelUnlocked = if (next <= CAMPAIGN_LEVELS.size)
-                maxOf(highestLevelUnlocked, next) else highestLevelUnlocked,
+            // Always allow next level (infinite levels beyond 10 keep unlocking)
+            highestLevelUnlocked = maxOf(highestLevelUnlocked, next),
             hintCoins            = hintCoins + (cfg?.hintBonus ?: 0)
         )
     }
@@ -230,21 +230,41 @@ data class LevelConfig(
     val emoji: String,
     val gridSize: Int,
     val difficulty: Difficulty,
-    val hintBonus: Int = 0
+    val hintBonus: Int = 0,
+    /** Level 1 auto-shows free hints each turn */
+    val hasTutorial: Boolean = false,
+    /** Move time limit in seconds; null = no limit */
+    val timeLimitSeconds: Int? = null
 )
 
 val CAMPAIGN_LEVELS: List<LevelConfig> = listOf(
-    LevelConfig(1,  "Baby Steps",   "🐣", 3, Difficulty.EASY,   0),
+    LevelConfig(1,  "Baby Steps",   "🐣", 3, Difficulty.EASY,   0, hasTutorial = true),
     LevelConfig(2,  "Warming Up",   "🌱", 3, Difficulty.EASY,   0),
     LevelConfig(3,  "Getting Real", "⚡", 4, Difficulty.EASY,   1),
     LevelConfig(4,  "Challenge",    "🎯", 4, Difficulty.MEDIUM, 0),
     LevelConfig(5,  "Mind Games",   "🧩", 4, Difficulty.MEDIUM, 1),
     LevelConfig(6,  "Big Board",    "🔥", 5, Difficulty.MEDIUM, 1),
     LevelConfig(7,  "Clash Mode",   "⚔️", 5, Difficulty.HARD,  1),
-    LevelConfig(8,  "No Mercy",     "💀", 5, Difficulty.HARD,  2),
+    LevelConfig(8,  "No Mercy",     "💀", 5, Difficulty.HARD,  2, timeLimitSeconds = 15),
     LevelConfig(9,  "Master Class", "💎", 6, Difficulty.HARD,  2),
     LevelConfig(10, "LEGEND",       "👑", 6, Difficulty.HARD,  3)
 )
+
+/** Generates an infinite-mode level config for level 11, 12, 13... */
+fun infiniteLevelConfig(number: Int) = LevelConfig(
+    number           = number,
+    title            = "Infinity ${number - CAMPAIGN_LEVELS.size}",
+    emoji            = "♾️",
+    gridSize         = 6,
+    difficulty       = Difficulty.HARD,
+    hintBonus        = 0,
+    hasTutorial      = false,
+    timeLimitSeconds = null
+)
+
+/** Returns the config for any level number (handles infinite levels too) */
+fun levelConfigFor(number: Int): LevelConfig =
+    CAMPAIGN_LEVELS.getOrNull(number - 1) ?: infiniteLevelConfig(number)
 
 // ── Enums ────────────────────────────────────────────────────────────────────
 
