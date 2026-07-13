@@ -13,6 +13,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.*
 import com.pixelplay.dotsboxes.domain.model.BoardSkin
 import com.pixelplay.dotsboxes.domain.model.GameState
@@ -35,23 +36,39 @@ fun GameBoard(
     modifier: Modifier = Modifier,
     hintMove: LineId? = null,
     activeSkin: BoardSkin = BoardSkin.DEFAULT,
-    aiLastLine: LineId? = null
+    lastMoveHighlight: LineId? = null,
+    specialBoxes: com.pixelplay.dotsboxes.domain.model.SpecialBoxes =
+        com.pixelplay.dotsboxes.domain.model.SpecialBoxes()
 ) {
     val isDark = isSystemInDarkTheme()
 
     // Skin-aware player colors
     val (p1Color, p2Color) = when (activeSkin) {
         BoardSkin.DEFAULT  -> Player1Blue       to Player2Orange
-        BoardSkin.FIRE     -> Color(0xFFFF5722) to Color(0xFFFFD600)
-        BoardSkin.GOLDEN   -> Color(0xFFFFD700) to Color(0xFFE040FB)
-        BoardSkin.CONTRAST -> Color(0xFFFFFFFF) to Color(0xFFFFFF00)
+        BoardSkin.FIRE     -> Color(0xFFFF1744) to Color(0xFFFFEA00)
+        BoardSkin.GOLDEN   -> Color(0xFFFF8F00) to Color(0xFFE040FB)
+        BoardSkin.CONTRAST -> Color(0xFF40C4FF) to Color(0xFFFF6D00)
     }
-    val p1BoxFill  = p1Color.copy(alpha = 0.28f)
-    val p2BoxFill  = p2Color.copy(alpha = 0.28f)
-    val dotColor   = if (activeSkin == BoardSkin.CONTRAST) Color.White
-                     else if (isDark) DotColorDark else DotColor
-    val guideColor = if (activeSkin == BoardSkin.CONTRAST) Color(0xFF555555)
-                     else if (isDark) GridGuideDark else GridGuide
+    val p1BoxFill  = p1Color.copy(alpha = 0.55f)
+    val p2BoxFill  = p2Color.copy(alpha = 0.55f)
+    val boardBgColor = when (activeSkin) {
+        BoardSkin.DEFAULT  -> if (isDark) Color(0xFF0D0D2B) else Color(0xFFEAE8FF)
+        BoardSkin.FIRE     -> Color(0xFF1A0000)
+        BoardSkin.GOLDEN   -> Color(0xFF1A1100)
+        BoardSkin.CONTRAST -> Color(0xFF000000)
+    }
+    val dotColor = when (activeSkin) {
+        BoardSkin.DEFAULT  -> if (isDark) DotColorDark else DotColor
+        BoardSkin.FIRE     -> Color(0xFFFF8A80)
+        BoardSkin.GOLDEN   -> Color(0xFFFFD54F)
+        BoardSkin.CONTRAST -> Color.White
+    }
+    val guideColor = when (activeSkin) {
+        BoardSkin.CONTRAST -> Color(0xFF555555)
+        BoardSkin.FIRE     -> Color(0xFF4A0000)
+        BoardSkin.GOLDEN   -> Color(0xFF4A3800)
+        else               -> if (isDark) GridGuideDark else GridGuide
+    }
 
     var hoverLine by remember { mutableStateOf<LineId?>(null) }
 
@@ -118,6 +135,13 @@ fun GameBoard(
         val dotR   = cell * DOT_RADIUS_FRACTION
         val stroke = cell * STROKE_FRACTION
 
+        // 0. Board background
+        drawRoundRect(
+            color        = boardBgColor,
+            size         = Size(boardSize, boardSize),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(boardSize * 0.05f)
+        )
+
         // 1. Box fills (vibrant gradient-like fill)
         drawBoxFills(state, pad, cell, p1BoxFill, p2BoxFill, p1Color, p2Color)
 
@@ -127,9 +151,14 @@ fun GameBoard(
         // 3. Drawn lines with glow
         drawDrawnLinesGlow(state, pad, cell, stroke, p1Color, p2Color, glowPulse, animatedLineId, drawProgress)
 
-        // 3b. AI last move cyan spotlight (overlays normal line color)
-        aiLastLine?.let { id ->
-            if (state.isLineDrawn(id)) drawAiLastLine(id, pad, cell, stroke, glowPulse)
+        // 3b. Last move highlight — pulsing glow in that player's color
+        lastMoveHighlight?.let { id ->
+            if (state.isLineDrawn(id)) {
+                val owner = if (id.isHorizontal) state.hLines[id.row][id.col]
+                            else state.vLines[id.row][id.col]
+                val hlColor = if (owner == PlayerType.ONE) p1Color else p2Color
+                drawLastMoveHighlight(id, pad, cell, stroke, glowPulse, hlColor)
+            }
         }
 
         // 4. Hint move golden highlight
@@ -142,19 +171,52 @@ fun GameBoard(
             if (!state.isLineDrawn(id)) drawHoverLine(id, pad, cell, stroke)
         }
 
+        // 4c. Special reward boxes (👑 crown, 🎁 mystery) while un-captured
+        if (!specialBoxes.isEmpty) {
+            drawSpecialBoxes(state, specialBoxes, pad, cell, glowPulse)
+        }
+
         // 5. Dots on top
         for (r in 0..state.gridSize) {
             for (c in 0..state.gridSize) {
-                // Outer shadow ring
-                drawCircle(dotColor.copy(alpha = 0.18f), dotR * 1.8f, dot(r, c, pad, cell))
-                // Dot
-                drawCircle(dotColor, dotR, dot(r, c, pad, cell))
+                val center = dot(r, c, pad, cell)
+                // Soft outer glow
+                drawCircle(dotColor.copy(alpha = 0.12f), dotR * 2.6f, center)
+                // Mid glow ring
+                drawCircle(dotColor.copy(alpha = 0.28f), dotR * 1.6f, center)
+                // Dot core
+                drawCircle(dotColor, dotR, center)
             }
         }
     }
 }
 
 // ── Drawing ───────────────────────────────────────────────────────────────────
+
+private fun DrawScope.drawSpecialBoxes(
+    state: GameState,
+    special: com.pixelplay.dotsboxes.domain.model.SpecialBoxes,
+    pad: Float, cell: Float,
+    pulse: Float
+) {
+    val paint = android.graphics.Paint().apply {
+        textAlign   = android.graphics.Paint.Align.CENTER
+        textSize    = cell * 0.5f
+        isAntiAlias = true
+    }
+    val fm = paint.fontMetrics
+    fun mark(r: Int, c: Int, emoji: String, glow: Color) {
+        if (state.boxes[r][c] != null) return   // captured → hide marker
+        val cx = pad + c * cell + cell / 2f
+        val cy = pad + r * cell + cell / 2f
+        drawCircle(glow.copy(alpha = 0.18f * pulse), cell * 0.34f, Offset(cx, cy))
+        drawCircle(glow.copy(alpha = 0.30f * pulse), cell * 0.22f, Offset(cx, cy))
+        val baseline = cy - (fm.ascent + fm.descent) / 2f
+        drawContext.canvas.nativeCanvas.drawText(emoji, cx, baseline, paint)
+    }
+    special.crowns.forEach { (r, c) -> mark(r, c, "👑", Color(0xFFFFD700)) }
+    special.mystery?.let { (r, c) -> mark(r, c, "🎁", Color(0xFFE040FB)) }
+}
 
 private fun DrawScope.drawBoxFills(
     state: GameState,
@@ -225,20 +287,11 @@ private fun DrawScope.drawDrawnLinesGlow(
     }
 }
 
-private fun DrawScope.drawAiLastLine(id: LineId, pad: Float, cell: Float, stroke: Float, pulse: Float) {
-    val cyan  = Color(0xFF00E5FF)
+private fun DrawScope.drawLastMoveHighlight(id: LineId, pad: Float, cell: Float, stroke: Float, pulse: Float, color: Color) {
     val (start, end) = lineEndpoints(id, pad, cell)
-    // Outer soft glow on line
-    drawLine(cyan.copy(alpha = pulse * 0.30f), start, end, stroke * 4.5f, StrokeCap.Round)
-    drawLine(cyan.copy(alpha = pulse * 0.55f), start, end, stroke * 2.2f, StrokeCap.Round)
-    // Bright core overlay
-    drawLine(cyan.copy(alpha = 0.90f),         start, end, stroke * 1.1f, StrokeCap.Round)
-    // Pulsing rings at both endpoints (the "arrow" feel)
-    for (pt in listOf(start, end)) {
-        drawCircle(cyan.copy(alpha = pulse * 0.25f), stroke * 3.5f, pt)
-        drawCircle(cyan.copy(alpha = pulse * 0.55f), stroke * 2.0f, pt)
-        drawCircle(cyan.copy(alpha = 0.85f),         stroke * 1.0f, pt)
-    }
+    drawLine(color.copy(alpha = pulse * 0.22f), start, end, stroke * 5.5f, StrokeCap.Round)
+    drawLine(color.copy(alpha = pulse * 0.50f), start, end, stroke * 2.8f, StrokeCap.Round)
+    drawLine(color.copy(alpha = pulse * 0.95f), start, end, stroke * 1.2f, StrokeCap.Round)
 }
 
 private fun DrawScope.drawHintLine(id: LineId, pad: Float, cell: Float, stroke: Float, pulse: Float) {

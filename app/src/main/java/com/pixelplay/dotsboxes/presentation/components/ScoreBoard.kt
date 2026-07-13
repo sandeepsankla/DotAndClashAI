@@ -25,7 +25,9 @@ import com.pixelplay.dotsboxes.presentation.theme.Player2Orange
 fun ScoreBoard(
     state: GameState,
     isAiThinking: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    p1Color: Color = Player1Blue,
+    p2Color: Color = Player2Orange
 ) {
     Row(
         modifier = modifier
@@ -39,7 +41,7 @@ fun ScoreBoard(
         PlayerCard(
             name       = state.p1Name,
             score      = state.p1Score,
-            color      = Player1Blue,
+            color      = p1Color,
             isActive   = !state.isGameOver && state.currentPlayer == PlayerType.ONE && !isAiThinking,
             modifier   = Modifier.weight(1f)
         )
@@ -64,7 +66,7 @@ fun ScoreBoard(
         PlayerCard(
             name       = state.p2Name,
             score      = state.p2Score,
-            color      = Player2Orange,
+            color      = p2Color,
             isActive   = !state.isGameOver && state.currentPlayer == PlayerType.TWO,
             modifier   = Modifier.weight(1f),
             alignEnd   = true

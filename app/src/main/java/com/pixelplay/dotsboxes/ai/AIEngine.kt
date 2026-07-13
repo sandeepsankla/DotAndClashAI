@@ -11,10 +11,9 @@ interface AIEngine {
 
 object AIFactory {
     /**
-     * @param difficulty     Chosen difficulty level.
-     * @param consecLosses   Consecutive Hard-mode losses by the human.
-     *                       When ≥ 3 the Hard AI secretly makes occasional "mistakes"
-     *                       so the player can finally land a win (Dynamic Difficulty).
+     * DDA (Dynamic Difficulty Adjustment) for all difficulties.
+     * Thresholds: Easy→5 losses, Medium→3 losses, Hard→3 losses.
+     * Mistake chance scales up with each additional loss (max 45%).
      */
     fun create(difficulty: Difficulty, consecLosses: Int = 0): AIEngine {
         val base: AIEngine = when (difficulty) {
@@ -22,9 +21,14 @@ object AIFactory {
             Difficulty.MEDIUM -> MediumAI()
             Difficulty.HARD   -> HardAI()
         }
-        // DDA kicks in after 3 consecutive Hard losses — scales up to 40 % mistake chance
-        return if (difficulty == Difficulty.HARD && consecLosses >= 3) {
-            val mistakeChance = minOf(0.15f * (consecLosses - 2), 0.40f)
+        val threshold = when (difficulty) {
+            Difficulty.EASY   -> 5
+            Difficulty.MEDIUM -> 3
+            Difficulty.HARD   -> 3
+        }
+        return if (consecLosses >= threshold) {
+            val extra         = consecLosses - (threshold - 1)
+            val mistakeChance = minOf(0.12f * extra, 0.45f)
             DDAWrapper(base, mistakeChance)
         } else base
     }

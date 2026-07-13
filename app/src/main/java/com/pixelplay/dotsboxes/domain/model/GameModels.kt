@@ -64,8 +64,11 @@ data class DifficultyStats(
 
 // ── Player Stats (persisted across all games) ────────────────────────────────
 
+private const val HINT_EXPIRY_DAYS = 2L   // hints expire 2 days after last hint activity
+
 @Serializable
 data class PlayerStats(
+    val playerName: String      = "Player",
     // Win / loss record
     val wins: Int               = 0,
     val losses: Int             = 0,
@@ -85,13 +88,33 @@ data class PlayerStats(
     // Skins & cosmetics
     val unlockedSkins: Set<String> = setOf("DEFAULT"),
     val activeSkin: String         = "DEFAULT",
-    // Dynamic difficulty — consecutive Hard losses
-    val consecutiveLossesHard: Int = 0,
+    // Dynamic difficulty — consecutive AI losses (all difficulties)
+    val consecutiveLossesAi: Int = 0,
     // Achievement badges
     val badges: Set<String>        = emptySet(),
     // Campaign progress
     val highestLevelUnlocked: Int  = 1,
-    val levelsCompleted: Set<Int>  = emptySet()
+    val levelsCompleted: Set<Int>  = emptySet(),
+    // DotCoins — virtual currency (2 per box won, spent on cosmetics)
+    val dotCoins: Int              = 0,
+    // Daily task — 2 wins per day
+    val dailyWinsCount: Int        = 0,
+    val lastDailyWinsEpochDay: Long = -1L,
+    // Flash challenge
+    val lastFlashChallengeDay: Long = -1L,
+    // Lucky spin
+    val pendingSpins: Int          = 0,
+    // Avatar
+    val activeAvatarId: Int        = 0,
+    val unlockedAvatarIds: Set<Int> = setOf(0),
+    // Settings
+    val soundEnabled: Boolean      = true,
+    val vibrationEnabled: Boolean  = true,
+    // Online free-games quota
+    val onlineGamesToday: Int      = 0,
+    val lastOnlineEpochDay: Long   = -1L,
+    // Hints expire 2 days after last hint activity (use-it-or-lose-it)
+    val hintsExpiryEpochDay: Long  = -1L
 ) {
     // ── Computed helpers ──────────────────────────────────────────────────────
 
@@ -125,20 +148,20 @@ data class PlayerStats(
             GameResult.LOSE -> 15
             GameResult.TIE  -> 25
         }
-        // Track consecutive Hard losses for DDA
+        // Track consecutive AI losses across all difficulties for DDA
         val newConsecLosses = when {
-            difficulty == Difficulty.HARD && result == GameResult.LOSE -> consecutiveLossesHard + 1
-            difficulty == Difficulty.HARD                              -> 0
-            else                                                       -> consecutiveLossesHard
+            difficulty != null && result == GameResult.LOSE -> consecutiveLossesAi + 1
+            difficulty != null && result == GameResult.WIN  -> 0
+            else                                            -> consecutiveLossesAi
         }
         val updated = copy(
-            wins                  = wins   + if (result == GameResult.WIN)  1 else 0,
-            losses                = losses + if (result == GameResult.LOSE) 1 else 0,
-            ties                  = ties   + if (result == GameResult.TIE)  1 else 0,
-            currentStreak         = newStreak,
-            bestStreak            = maxOf(bestStreak, newStreak),
-            xp                    = xp + xpGain,
-            consecutiveLossesHard = newConsecLosses
+            wins               = wins   + if (result == GameResult.WIN)  1 else 0,
+            losses             = losses + if (result == GameResult.LOSE) 1 else 0,
+            ties               = ties   + if (result == GameResult.TIE)  1 else 0,
+            currentStreak      = newStreak,
+            bestStreak         = maxOf(bestStreak, newStreak),
+            xp                 = xp + xpGain,
+            consecutiveLossesAi = newConsecLosses
         )
         if (difficulty == null) return updated
         val key      = difficulty.name
@@ -188,9 +211,82 @@ data class PlayerStats(
 
     // ── Skin helpers ──────────────────────────────────────────────────────────
 
-    fun spendHint(): PlayerStats            = copy(hintCoins = (hintCoins - 1).coerceAtLeast(0))
-    fun earnHints(n: Int): PlayerStats      = copy(hintCoins = hintCoins + n)
+    fun spendHint(): PlayerStats =
+        copy(hintCoins = (hintCoins - 1).coerceAtLeast(0)).refreshHintExpiry()
+    fun earnHints(n: Int): PlayerStats =
+        copy(hintCoins = hintCoins + n).refreshHintExpiry()
+    fun earnDotCoins(n: Int): PlayerStats   = copy(dotCoins = dotCoins + n)
+
+    // ── Hint expiry (2 days) ──────────────────────────────────────────────────
+    /** Any hint activity pushes the expiry 2 days out; no hints ⇒ no expiry. */
+    private fun refreshHintExpiry(): PlayerStats =
+        copy(hintsExpiryEpochDay = if (hintCoins > 0) todayEpoch() + HINT_EXPIRY_DAYS else -1L)
+
+    /** Whole days left before hints expire (Int.MAX_VALUE if none set). */
+    val hintsExpiryDaysLeft: Int get() =
+        if (hintCoins <= 0 || hintsExpiryEpochDay < 0) Int.MAX_VALUE
+        else (hintsExpiryEpochDay - todayEpoch()).toInt()
+
+    /** Call on app open: wipe hints if their 2-day window has passed. */
+    fun expireHintsIfDue(): PlayerStats =
+        if (hintCoins > 0 && hintsExpiryEpochDay in 0 until todayEpoch())
+            copy(hintCoins = 0, hintsExpiryEpochDay = -1L)
+        else this
     fun withActiveSkin(skin: BoardSkin): PlayerStats = copy(activeSkin = skin.name)
+
+    fun purchaseSkin(skin: BoardSkin, cost: Int): PlayerStats = copy(
+        dotCoins      = (dotCoins - cost).coerceAtLeast(0),
+        unlockedSkins = unlockedSkins + skin.name
+    )
+
+    fun purchaseHintPack(hints: Int, cost: Int): PlayerStats = copy(
+        dotCoins  = (dotCoins - cost).coerceAtLeast(0),
+        hintCoins = hintCoins + hints
+    ).refreshHintExpiry()
+
+    fun canAfford(cost: Int): Boolean = dotCoins >= cost
+
+    // ── Daily task helpers ────────────────────────────────────────────────────
+
+    private fun todayEpoch() = TimeUnit.MILLISECONDS.toDays(System.currentTimeMillis())
+
+    val todayWins: Int get() {
+        val today = todayEpoch()
+        return if (lastDailyWinsEpochDay == today) dailyWinsCount else 0
+    }
+    val dailyTaskComplete: Boolean get() = todayWins >= 2
+
+    fun withDailyWin(): PlayerStats {
+        val today = todayEpoch()
+        val count = if (lastDailyWinsEpochDay == today) dailyWinsCount + 1 else 1
+        return copy(dailyWinsCount = count, lastDailyWinsEpochDay = today)
+    }
+
+    // ── Online free-games quota ───────────────────────────────────────────────
+    val todayOnlineGames: Int get() =
+        if (lastOnlineEpochDay == todayEpoch()) onlineGamesToday else 0
+
+    fun withOnlineGamePlayed(): PlayerStats {
+        val today = todayEpoch()
+        val count = if (lastOnlineEpochDay == today) onlineGamesToday + 1 else 1
+        return copy(onlineGamesToday = count, lastOnlineEpochDay = today)
+    }
+
+    // ── Flash challenge helpers ───────────────────────────────────────────────
+
+    val hasPlayedFlashToday: Boolean get() = lastFlashChallengeDay == todayEpoch()
+
+    fun withFlashChallengePlayed(): PlayerStats =
+        copy(lastFlashChallengeDay = todayEpoch())
+
+    fun addSpin(n: Int = 1): PlayerStats = copy(pendingSpins = pendingSpins + n)
+    fun useSpin(): PlayerStats = copy(pendingSpins = (pendingSpins - 1).coerceAtLeast(0))
+
+    // ── Avatar ────────────────────────────────────────────────────────────────
+    fun isAvatarUnlocked(id: Int) = id in unlockedAvatarIds
+    fun purchaseAvatar(id: Int, cost: Int): PlayerStats =
+        copy(dotCoins = dotCoins - cost, unlockedAvatarIds = unlockedAvatarIds + id, activeAvatarId = id)
+    fun setAvatar(id: Int): PlayerStats = copy(activeAvatarId = id)
 
     // ── Campaign ──────────────────────────────────────────────────────────────
 
@@ -238,16 +334,30 @@ data class LevelConfig(
 )
 
 val CAMPAIGN_LEVELS: List<LevelConfig> = listOf(
+    // ── 3×3 tier — Learn the basics ──────────────────────────────────────────
     LevelConfig(1,  "Baby Steps",   "🐣", 3, Difficulty.EASY,   0, hasTutorial = true),
-    LevelConfig(2,  "Warming Up",   "🌱", 3, Difficulty.EASY,   0),
-    LevelConfig(3,  "Getting Real", "⚡", 4, Difficulty.EASY,   1),
-    LevelConfig(4,  "Challenge",    "🎯", 4, Difficulty.MEDIUM, 0),
-    LevelConfig(5,  "Mind Games",   "🧩", 4, Difficulty.MEDIUM, 1),
-    LevelConfig(6,  "Big Board",    "🔥", 5, Difficulty.MEDIUM, 1),
-    LevelConfig(7,  "Clash Mode",   "⚔️", 5, Difficulty.HARD,  1),
-    LevelConfig(8,  "No Mercy",     "💀", 5, Difficulty.HARD,  2, timeLimitSeconds = 15),
-    LevelConfig(9,  "Master Class", "💎", 6, Difficulty.HARD,  2),
-    LevelConfig(10, "LEGEND",       "👑", 6, Difficulty.HARD,  3)
+    LevelConfig(2,  "Warming Up",   "🌱", 4, Difficulty.EASY,   0),
+    LevelConfig(3,  "First Fight",  "⚔️", 4, Difficulty.MEDIUM, 0),
+    // ── 4×4 tier — Grid expands ──────────────────────────────────────────────
+    LevelConfig(4,  "Getting Real", "⚡", 4, Difficulty.EASY,   1),
+    LevelConfig(5,  "Challenge",    "🎯", 4, Difficulty.MEDIUM, 0),
+    LevelConfig(6,  "Mind Games",   "🧩", 4, Difficulty.MEDIUM, 1),
+    LevelConfig(7,  "Hard Entry",   "🎮", 4, Difficulty.HARD,   0),
+    // ── 5×5 tier — Mid game ──────────────────────────────────────────────────
+    LevelConfig(8,  "Big Board",    "🔥", 5, Difficulty.EASY,   1),
+    LevelConfig(9,  "Step Up",      "📈", 5, Difficulty.MEDIUM, 1),
+    LevelConfig(10, "Clash Mode",   "⚔️", 5, Difficulty.HARD,  1),
+    LevelConfig(11, "No Mercy",     "💀", 5, Difficulty.HARD,  2, timeLimitSeconds = 20),
+    LevelConfig(12, "Blitz",        "⚡", 5, Difficulty.HARD,  0, timeLimitSeconds = 12),
+    // ── 6×6 tier — Boss territory ────────────────────────────────────────────
+    LevelConfig(13, "Master Class", "💎", 6, Difficulty.MEDIUM, 1),
+    LevelConfig(14, "Endgame",      "🔮", 6, Difficulty.HARD,  2),
+    LevelConfig(15, "Time Warp",    "⏱️", 6, Difficulty.HARD,  2, timeLimitSeconds = 20),
+    LevelConfig(16, "Speed Chess",  "♟️", 6, Difficulty.HARD,  2, timeLimitSeconds = 15),
+    LevelConfig(17, "Lightning",    "🌩️", 6, Difficulty.HARD,  1, timeLimitSeconds = 12),
+    LevelConfig(18, "Elite",        "🏅", 6, Difficulty.HARD,  3),
+    LevelConfig(19, "Final Stand",  "🔱", 6, Difficulty.HARD,  3, timeLimitSeconds = 15),
+    LevelConfig(20, "LEGEND",       "👑", 6, Difficulty.HARD,  5)
 )
 
 /** Generates an infinite-mode level config for level 11, 12, 13... */
@@ -409,3 +519,48 @@ private fun countSidesWithNewLines(h: List<List<PlayerType?>>, v: List<List<Play
     if (v[row][col + 1] != null) n++
     return n
 }
+
+// ── Player Avatars ────────────────────────────────────────────────────────────
+
+data class PlayerAvatar(
+    val id: Int,
+    val emoji: String,
+    val label: String,
+    val cost: Int        // 0 = free
+)
+
+val ALL_AVATARS = listOf(
+    // ── Free ──────────────────────────────────────────
+    PlayerAvatar(0,  "😎", "Cool",        0),
+
+    // ── Superheroes ───────────────────────────────────
+    PlayerAvatar(1,  "🦸", "Hero",        100),
+    PlayerAvatar(2,  "🦇", "Batman",      150),
+    PlayerAvatar(3,  "🕷️", "Spidey",      150),
+    PlayerAvatar(4,  "🥷", "Ninja",       100),
+    PlayerAvatar(5,  "🦹", "Rogue",       120),
+    PlayerAvatar(6,  "🕵️", "Agent",       180),
+    PlayerAvatar(7,  "👨‍🚀", "Astronaut",  200),
+
+    // ── Royalty ───────────────────────────────────────
+    PlayerAvatar(8,  "👑", "King",        250),
+    PlayerAvatar(9,  "🤴", "Prince",      200),
+    PlayerAvatar(10, "👸", "Queen",       200),
+    PlayerAvatar(11, "🧝", "Elf",         300),
+
+    // ── Legends ───────────────────────────────────────
+    PlayerAvatar(12, "🐉", "Dragon",      350),
+    PlayerAvatar(13, "🦁", "Lion",        300),
+    PlayerAvatar(14, "🐯", "Tiger",       250),
+    PlayerAvatar(15, "🐺", "Wolf",        200),
+    PlayerAvatar(16, "🦊", "Fox",         220),
+    PlayerAvatar(17, "🧙", "Wizard",      300),
+
+    // ── Elite ─────────────────────────────────────────
+    PlayerAvatar(18, "💎", "Diamond",     500),
+    PlayerAvatar(19, "💀", "Skull",       400),
+    PlayerAvatar(20, "👽", "Alien",       350),
+    PlayerAvatar(21, "🔥", "Blaze",       180),
+    PlayerAvatar(22, "🤖", "Cyborg",      220),
+    PlayerAvatar(23, "👻", "Phantom",     150)
+)

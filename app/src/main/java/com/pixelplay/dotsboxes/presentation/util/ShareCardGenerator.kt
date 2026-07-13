@@ -1,5 +1,6 @@
 package com.pixelplay.dotsboxes.presentation.util
 
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.graphics.*
@@ -44,24 +45,20 @@ object ShareCardGenerator {
     }
 
     private fun launchShare(context: Context, uri: Uri) {
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "image/*"
+        fun makeIntent(pkg: String? = null) = Intent(Intent.ACTION_SEND).apply {
+            type = "image/png"
             putExtra(Intent.EXTRA_STREAM, uri)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            setPackage("com.whatsapp")
+            clipData = ClipData.newRawUri("", uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            pkg?.let { setPackage(it) }
         }
-        val hasWhatsApp = context.packageManager.queryIntentActivities(intent, 0).isNotEmpty()
+        val waIntent = makeIntent("com.whatsapp")
+        val hasWhatsApp = context.packageManager.queryIntentActivities(waIntent, 0).isNotEmpty()
         if (hasWhatsApp) {
-            context.startActivity(intent.apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
+            context.startActivity(waIntent)
         } else {
-            val chooser = Intent.createChooser(
-                Intent(Intent.ACTION_SEND).apply {
-                    type = "image/*"
-                    putExtra(Intent.EXTRA_STREAM, uri)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }, "Share score card"
-            ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-            context.startActivity(chooser)
+            context.startActivity(Intent.createChooser(makeIntent(), "Share score card")
+                .apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
         }
     }
 

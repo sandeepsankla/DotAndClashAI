@@ -33,7 +33,7 @@ val LightSurface2   = Color(0xFFEEECFF)
 val LightOnSurface  = Color(0xFF1C1B3A)
 
 // ── Board specific ────────────────────────────────────────────────────────────
-val DotColor        = Color(0xFF2C2C3E)
-val DotColorDark    = Color(0xFFD0CCFF)
+val DotColor        = Color(0xFF3D2B9F)   // Deep indigo (light theme)
+val DotColorDark    = Color(0xFFFFFFFF)   // Pure white (dark theme)
 val GridGuide       = Color(0x22AAAACC)
 val GridGuideDark   = Color(0x33AAAACC)

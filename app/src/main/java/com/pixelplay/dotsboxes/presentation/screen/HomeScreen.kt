@@ -3,13 +3,21 @@ package com.pixelplay.dotsboxes.presentation.screen
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
@@ -19,13 +27,16 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.pixelplay.dotsboxes.domain.model.ALL_AVATARS
 import com.pixelplay.dotsboxes.domain.model.BoardSkin
+import com.pixelplay.dotsboxes.domain.model.PlayerAvatar
 import com.pixelplay.dotsboxes.domain.model.DailyLoginInfo
 import com.pixelplay.dotsboxes.domain.model.Difficulty
 import com.pixelplay.dotsboxes.domain.model.DifficultyStats
 import com.pixelplay.dotsboxes.domain.model.GameMode
 import com.pixelplay.dotsboxes.domain.model.PlayerLevel
 import com.pixelplay.dotsboxes.domain.model.PlayerStats
+import com.pixelplay.dotsboxes.presentation.ads.BannerAdView
 import com.pixelplay.dotsboxes.presentation.theme.*
 import com.pixelplay.dotsboxes.presentation.viewmodel.GameConfig
 import kotlin.math.cos
@@ -37,14 +48,21 @@ fun HomeScreen(
     pendingDailyReward: DailyLoginInfo?,
     onRewardDismissed: () -> Unit,
     onCampaign: () -> Unit,
+    onStore: () -> Unit,
+    onOnline: () -> Unit,
+    onProfile: () -> Unit,
+    onFlashChallenge: () -> Unit,
+    onLeaderboard: () -> Unit = {},
+    onNotifications: () -> Unit = {},
+    onOpenSpin: () -> Unit = {},
     onSkinSelected: (BoardSkin) -> Unit,
     onStartGame: (GameConfig) -> Unit
 ) {
     // rememberSaveable survives back-navigation and process death
     var gridSize          by rememberSaveable { mutableStateOf(4) }
-    var modeOrdinal       by rememberSaveable { mutableStateOf(GameMode.PVP.ordinal) }
+    var modeOrdinal       by rememberSaveable { mutableStateOf(GameMode.PVA.ordinal) }
     var difficultyOrdinal by rememberSaveable { mutableStateOf(Difficulty.MEDIUM.ordinal) }
-    var p1Name            by rememberSaveable { mutableStateOf("") }
+    var p1Name            by rememberSaveable { mutableStateOf(playerStats.playerName.takeIf { it != "Player" } ?: "") }
     var p2Name            by rememberSaveable { mutableStateOf("") }
 
     val mode       = GameMode.entries[modeOrdinal]
@@ -62,6 +80,8 @@ fun HomeScreen(
         animationSpec = infiniteRepeatable(tween(18000, easing = LinearEasing)),
         label         = "dotRot"
     )
+
+    val scope = rememberCoroutineScope()
 
     Box(Modifier.fillMaxSize()) {
         // Animated dot background
@@ -121,8 +141,27 @@ fun HomeScreen(
             // ── Level + XP bar ────────────────────────────────────────────────
             LevelXpCard(stats = playerStats)
 
-            // ── Campaign button ───────────────────────────────────────────────
-            CampaignCard(stats = playerStats, onClick = onCampaign)
+            // ── Campaign + Store + Online row ─────────────────────────────────
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Min),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                    CampaignCard(stats = playerStats, onClick = onCampaign)
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    StoreButton(dotCoins = playerStats.dotCoins, onClick = onStore)
+                    OnlineButton(onClick = onOnline)
+                }
+            }
+
+            // ── Flash Challenge + Daily Task ──────────────────────────────────
+            FlashChallengeCard(
+                playerStats  = playerStats,
+                onClick      = onFlashChallenge
+            )
 
             // ── Stats Card ────────────────────────────────────────────────────
             if (playerStats.totalGames > 0) {
@@ -154,17 +193,17 @@ fun HomeScreen(
                 elevation = CardDefaults.cardElevation(10.dp)
             ) {
                 Column(
-                    Modifier.padding(18.dp),
+                    Modifier.padding(horizontal = 12.dp, vertical = 18.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // Grid size
+                    // Grid size (4–6 only)
                     SectionLabel("Grid Size")
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf(4, 5, 6, 7, 8).forEach { size ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(4, 5, 6).forEach { size ->
                             FilterChip(
                                 selected = gridSize == size,
                                 onClick  = { gridSize = size },
-                                label    = { Text("${size}×${size}", fontSize = 12.sp) },
+                                label    = { Text("${size}×${size}", fontSize = 13.sp) },
                                 colors   = chipColors()
                             )
                         }
@@ -174,9 +213,13 @@ fun HomeScreen(
 
                     // Game mode
                     SectionLabel("Mode")
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        ModeButton("👥  PvP",   GameMode.PVP, mode) { modeOrdinal = it.ordinal }
-                        ModeButton("🤖  vs AI", GameMode.PVA, mode) { modeOrdinal = it.ordinal }
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(horizontal = 2.dp)
+                    ) {
+                        item { ModeButton("🤖 vs AI", GameMode.PVA, mode) { modeOrdinal = it.ordinal } }
+                        item { ModeButton("👥 PvP",  GameMode.PVP, mode) { modeOrdinal = it.ordinal } }
+                        item { OnlineNavButton(onClick = onOnline) }
                     }
 
                     if (mode == GameMode.PVA) {
@@ -285,11 +328,93 @@ fun HomeScreen(
             }
 
             Text(
-                "Dot Clash AI  v1.0",
+                "Dot Clash AI  v${com.pixelplay.dotsboxes.BuildConfig.VERSION_NAME}",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.3f),
                 textAlign = TextAlign.Center
             )
+        }
+
+        // ── Top-right: coins + notification ───────────────────────────────────
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 10.dp, end = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Coin pill
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = Color(0xFFFFD700)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text("🪙", fontSize = 15.sp)
+                    Text(
+                        "${playerStats.dotCoins}",
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            fontWeight = FontWeight.ExtraBold,
+                            color      = Color(0xFF3E2000)
+                        )
+                    )
+                }
+            }
+            // 🎡 Spin chip — only when spins are waiting; tap → Lucky Spin wheel
+            if (playerStats.pendingSpins > 0) {
+                val spinPulse by rememberInfiniteTransition(label = "spin").animateFloat(
+                    initialValue  = 0.9f,
+                    targetValue   = 1.08f,
+                    animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
+                    label = "spinPulse"
+                )
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = Color(0xFF7E57C2),
+                    modifier = Modifier
+                        .scale(spinPulse)
+                        .clip(RoundedCornerShape(50))
+                        .clickable { onOpenSpin() }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        SpinnerIcon(modifier = Modifier.size(16.dp))
+                        Text(
+                            "${playerStats.pendingSpins}",
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                color      = Color.White
+                            )
+                        )
+                    }
+                }
+            }
+            // Notification bell
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.onBackground.copy(0.08f))
+                    .clickable { onNotifications() },
+                contentAlignment = Alignment.Center
+            ) {
+                Text("🔔", fontSize = 18.sp)
+            }
+        }
+
+        // ── Banner ad (bottom) ────────────────────────────────────────────────
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+        ) {
+            BannerAdView()
         }
 
         // ── Daily reward dialog ───────────────────────────────────────────────
@@ -298,6 +423,111 @@ fun HomeScreen(
                 info      = pendingDailyReward,
                 onDismiss = onRewardDismissed
             )
+        }
+    }
+
+}
+
+// ── Spinner icon (colorful radiating lines — lucky-wheel look) ─────────────────
+
+@Composable
+private fun SpinnerIcon(modifier: Modifier = Modifier) {
+    val spokeColors = listOf(
+        Color(0xFFFF5252), Color(0xFFFFB300), Color(0xFFFFEB3B),
+        Color(0xFF66BB6A), Color(0xFF29B6F6), Color(0xFFAB47BC)
+    )
+    androidx.compose.foundation.Canvas(modifier) {
+        val c  = Offset(size.width / 2f, size.height / 2f)
+        val r  = size.minDimension / 2f
+        val n  = spokeColors.size
+        val sw = size.minDimension * 0.13f
+        for (i in 0 until n) {
+            val ang = (2.0 * Math.PI / n * i).toFloat()
+            val end = Offset(c.x + r * cos(ang), c.y + r * sin(ang))
+            drawLine(spokeColors[i], c, end, strokeWidth = sw, cap = StrokeCap.Round)
+        }
+        drawCircle(Color.White, r * 0.22f, c)
+    }
+}
+
+// ── Store button ─────────────────────────────────────────────────────────────
+
+@Composable
+private fun StoreButton(dotCoins: Int, onClick: () -> Unit) {
+    Card(
+        onClick   = onClick,
+        shape     = RoundedCornerShape(20.dp),
+        colors    = CardDefaults.cardColors(containerColor = Color.Transparent),
+        elevation = CardDefaults.cardElevation(0.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .background(
+                    Brush.verticalGradient(listOf(Color(0xFFF9A825), Color(0xFFF57F17))),
+                    RoundedCornerShape(20.dp)
+                )
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text("🛍️", fontSize = 26.sp)
+                Text(
+                    "Store",
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White
+                    )
+                )
+                Text(
+                    "🪙 $dotCoins",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        color = Color.White.copy(0.85f)
+                    )
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun OnlineButton(onClick: () -> Unit) {
+    Card(
+        onClick   = onClick,
+        shape     = RoundedCornerShape(20.dp),
+        colors    = CardDefaults.cardColors(containerColor = Color.Transparent),
+        elevation = CardDefaults.cardElevation(0.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .background(
+                    Brush.verticalGradient(listOf(Color(0xFF0097A7), Color(0xFF006064))),
+                    RoundedCornerShape(20.dp)
+                )
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text("🌐", fontSize = 22.sp)
+                Text(
+                    "Online",
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White
+                    )
+                )
+                Text(
+                    "1v1",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        color = Color.White.copy(0.85f)
+                    )
+                )
+            }
         }
     }
 }
@@ -315,27 +545,31 @@ private fun CampaignCard(stats: PlayerStats, onClick: () -> Unit) {
 
     Card(
         onClick   = onClick,
-        modifier  = Modifier.fillMaxWidth(),
+        modifier  = Modifier.fillMaxSize(),
         shape     = RoundedCornerShape(20.dp),
         colors    = CardDefaults.cardColors(containerColor = Color.Transparent),
         elevation = CardDefaults.cardElevation(0.dp)
     ) {
         Box(
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxSize()
                 .background(
                     Brush.horizontalGradient(listOf(Purple40.copy(0.85f), Player1Blue.copy(0.85f))),
                     RoundedCornerShape(20.dp)
                 )
                 .padding(18.dp)
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Top: title + stars
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.Top
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             if (isAllDone) "🏆 All Levels Complete!" else "🎮 Campaign Mode",
                             style = MaterialTheme.typography.titleMedium.copy(
@@ -344,6 +578,7 @@ private fun CampaignCard(stats: PlayerStats, onClick: () -> Unit) {
                             )
                         )
                         if (!isAllDone && nextLvl != null) {
+                            Spacer(Modifier.height(2.dp))
                             Text(
                                 "Next: LV ${nextLvl.number} — ${nextLvl.title} ${nextLvl.emoji}",
                                 style = MaterialTheme.typography.bodySmall.copy(
@@ -351,17 +586,19 @@ private fun CampaignCard(stats: PlayerStats, onClick: () -> Unit) {
                                 )
                             )
                         } else if (isAllDone) {
+                            Spacer(Modifier.height(2.dp))
                             Text(
-                                "You're a Legend! Play again anytime",
+                                "You're a Legend!",
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     color = Color.White.copy(0.8f)
                                 )
                             )
                         }
                     }
+                    Spacer(Modifier.width(8.dp))
                     // Stars badge
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("⭐", fontSize = 26.sp)
+                        Text("⭐", fontSize = 24.sp)
                         Text(
                             "$completed/$total",
                             style = MaterialTheme.typography.labelLarge.copy(
@@ -371,7 +608,8 @@ private fun CampaignCard(stats: PlayerStats, onClick: () -> Unit) {
                         )
                     }
                 }
-                // Progress bar
+
+                // Middle: progress bar
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -389,24 +627,24 @@ private fun CampaignCard(stats: PlayerStats, onClick: () -> Unit) {
                             )
                     )
                 }
-                // CTA row
-                Row(
+
+                // Bottom: CTA button full width
+                Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color.White.copy(alpha = 0.22f)
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = Color.White.copy(alpha = 0.22f)
-                    ) {
-                        Text(
-                            if (completed == 0) "Start  ▶" else "Continue  ▶",
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                            style = MaterialTheme.typography.labelLarge.copy(
-                                color = Color.White,
-                                fontWeight = FontWeight.ExtraBold
-                            )
+                    Text(
+                        if (completed == 0) "Start  ▶" else "Continue  ▶",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 10.dp),
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            color = Color.White,
+                            fontWeight = FontWeight.ExtraBold
                         )
-                    }
+                    )
                 }
             }
         }
@@ -417,8 +655,6 @@ private fun CampaignCard(stats: PlayerStats, onClick: () -> Unit) {
 
 @Composable
 private fun StatsCard(stats: PlayerStats, onSkinSelected: (BoardSkin) -> Unit) {
-    var selectedTab by rememberSaveable { mutableStateOf(0) }  // 0=Overall 1=Easy 2=Med 3=Hard
-
     Card(
         modifier  = Modifier.fillMaxWidth(),
         shape     = RoundedCornerShape(20.dp),
@@ -453,47 +689,10 @@ private fun StatsCard(stats: PlayerStats, onSkinSelected: (BoardSkin) -> Unit) {
                 }
             }
 
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(14.dp))
 
-            // Tab row: Overall / Easy / Medium / Hard
-            val tabs = listOf("All" to "🌐", "Easy" to "🐣", "Medium" to "⚔️", "Hard" to "🧠")
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                tabs.forEachIndexed { i, (label, emoji) ->
-                    val active = selectedTab == i
-                    // Only show difficulty tabs if that difficulty has games played
-                    val hasGames = when (i) {
-                        0 -> true
-                        1 -> stats.diffStats(Difficulty.EASY).totalGames > 0
-                        2 -> stats.diffStats(Difficulty.MEDIUM).totalGames > 0
-                        3 -> stats.diffStats(Difficulty.HARD).totalGames > 0
-                        else -> false
-                    }
-                    if (hasGames) {
-                        FilterChip(
-                            selected = active,
-                            onClick  = { selectedTab = i },
-                            label    = { Text("$emoji $label", fontSize = 11.sp) },
-                            colors   = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                selectedLabelColor     = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        )
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            // Stats row for selected tab
-            when (selectedTab) {
-                0 -> OverallStatsRow(stats)
-                1 -> DifficultyStatsRow(stats.diffStats(Difficulty.EASY), Color(0xFF81C784))
-                2 -> DifficultyStatsRow(stats.diffStats(Difficulty.MEDIUM), Player1Blue)
-                3 -> DifficultyStatsRow(stats.diffStats(Difficulty.HARD), Player2Orange)
-            }
+            // Overall stats (no difficulty tabs)
+            OverallStatsRow(stats)
 
             // ── Skin selector — CONTRAST always free, others via streak unlock ──
             val unlockedSkins = BoardSkin.entries.filter {
@@ -506,28 +705,31 @@ private fun StatsCard(stats: PlayerStats, onSkinSelected: (BoardSkin) -> Unit) {
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Board Skin",
+                    "Board Theme",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary
                 )
                 Spacer(Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    unlockedSkins.forEach { skin ->
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(horizontal = 2.dp)
+                ) {
+                    items(unlockedSkins) { skin ->
                         val isActive = stats.activeSkin == skin.name
                         FilterChip(
                             selected = isActive,
                             onClick  = { onSkinSelected(skin) },
-                            label    = { Text("${skin.emoji} ${skin.displayName}", fontSize = 12.sp) },
+                            label    = { Text("${skin.emoji} ${skin.displayName}", fontSize = 12.sp, maxLines = 1) },
                             colors   = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = when (skin) {
-                                    BoardSkin.FIRE     -> Color(0xFFFF5722).copy(alpha = 0.2f)
-                                    BoardSkin.GOLDEN   -> Color(0xFFFFD700).copy(alpha = 0.2f)
+                                    BoardSkin.FIRE     -> Color(0xFFFF1744).copy(alpha = 0.2f)
+                                    BoardSkin.GOLDEN   -> Color(0xFFFF8F00).copy(alpha = 0.2f)
                                     BoardSkin.CONTRAST -> Color(0xFF212121)
                                     else               -> MaterialTheme.colorScheme.primaryContainer
                                 },
                                 selectedLabelColor = when (skin) {
-                                    BoardSkin.FIRE     -> Color(0xFFFF5722)
-                                    BoardSkin.GOLDEN   -> Color(0xFFFFD700)
+                                    BoardSkin.FIRE     -> Color(0xFFFF1744)
+                                    BoardSkin.GOLDEN   -> Color(0xFFFF8F00)
                                     BoardSkin.CONTRAST -> Color(0xFFFFFFFF)
                                     else               -> MaterialTheme.colorScheme.onPrimaryContainer
                                 }
@@ -735,6 +937,7 @@ private fun LevelXpCard(stats: PlayerStats) {
                     )
                 }
             }
+
         }
     }
 }
@@ -884,15 +1087,33 @@ private fun SectionLabel(text: String) = Text(
 )
 
 @Composable
-private fun RowScope.ModeButton(
+private fun OnlineNavButton(onClick: () -> Unit) {
+    OutlinedButton(
+        onClick        = onClick,
+        modifier       = Modifier.widthIn(min = 100.dp).height(48.dp),
+        shape          = RoundedCornerShape(12.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp),
+        colors         = ButtonDefaults.outlinedButtonColors(
+            containerColor = Color.Transparent,
+            contentColor   = MaterialTheme.colorScheme.onSurface
+        ),
+        border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.outline.copy(0.4f))
+    ) {
+        Text("🌐 Online", style = MaterialTheme.typography.labelMedium, maxLines = 1)
+    }
+}
+
+@Composable
+private fun ModeButton(
     label: String, thisMode: GameMode, selected: GameMode, onClick: (GameMode) -> Unit
 ) {
     val active = thisMode == selected
     OutlinedButton(
-        onClick = { onClick(thisMode) },
-        modifier = Modifier.weight(1f),
-        shape    = RoundedCornerShape(12.dp),
-        colors   = ButtonDefaults.outlinedButtonColors(
+        onClick        = { onClick(thisMode) },
+        modifier       = Modifier.widthIn(min = 100.dp).height(48.dp),
+        shape          = RoundedCornerShape(12.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp),
+        colors         = ButtonDefaults.outlinedButtonColors(
             containerColor = if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
             contentColor   = if (active) MaterialTheme.colorScheme.onPrimaryContainer
                              else MaterialTheme.colorScheme.onSurface
@@ -903,7 +1124,7 @@ private fun RowScope.ModeButton(
             else MaterialTheme.colorScheme.outline.copy(0.4f)
         )
     ) {
-        Text(label, style = MaterialTheme.typography.labelLarge)
+        Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
     }
 }
 
@@ -934,3 +1155,339 @@ private fun chipColors() = FilterChipDefaults.filterChipColors(
     selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
     selectedLabelColor     = MaterialTheme.colorScheme.onPrimaryContainer
 )
+
+// ── Flash Challenge Card ──────────────────────────────────────────────────────
+
+@Composable
+private fun FlashChallengeCard(
+    playerStats: PlayerStats,
+    onClick: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        FlashChallengeBox(playerStats = playerStats, onClick = onClick)
+        DailyMissionBox(playerStats = playerStats)
+    }
+}
+
+// ── Box 1: Flash Challenge ─────────────────────────────────────────────────────
+
+@Composable
+private fun FlashChallengeBox(
+    playerStats: PlayerStats,
+    onClick: () -> Unit
+) {
+    val played = playerStats.hasPlayedFlashToday
+
+    Card(
+        onClick   = onClick,
+        modifier  = Modifier.fillMaxWidth(),
+        shape     = RoundedCornerShape(20.dp),
+        colors    = CardDefaults.cardColors(containerColor = Color.Transparent),
+        elevation = CardDefaults.cardElevation(0.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.horizontalGradient(listOf(Color(0xFF1A0040), Color(0xFF0D2040))),
+                    RoundedCornerShape(20.dp)
+                )
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text(if (played) "🔒" else "⚡", fontSize = 36.sp)
+
+                Column(modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        "Flash Challenge",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            color = Color.White, fontWeight = FontWeight.ExtraBold
+                        )
+                    )
+                    Text(
+                        if (played) "✅ Played today · Resets tomorrow"
+                        else "15s · Complete boxes vs AI",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            color = if (played) Color(0xFF4CAF50) else Color.White.copy(0.55f)
+                        )
+                    )
+                    if (!played && playerStats.pendingSpins > 0) {
+                        Text(
+                            "🎡 ${playerStats.pendingSpins} spin${if (playerStats.pendingSpins > 1) "s" else ""} waiting!",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = Color(0xFFFFD700), fontWeight = FontWeight.Bold
+                            )
+                        )
+                    }
+                }
+
+                if (!played) {
+                    Text("›", fontSize = 28.sp, color = Color.White.copy(0.4f))
+                }
+            }
+        }
+    }
+}
+
+// ── Box 2: Daily Mission (win 2 vs AI) ─────────────────────────────────────────
+
+@Composable
+private fun DailyMissionBox(playerStats: PlayerStats) {
+    val wins     = playerStats.todayWins
+    val complete = playerStats.dailyTaskComplete
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                Brush.horizontalGradient(listOf(Color(0xFF2A1A00), Color(0xFF1A2000))),
+                RoundedCornerShape(20.dp)
+            )
+            .padding(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text(if (complete) "✅" else "🎯", fontSize = 36.sp)
+
+            Column(modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "Daily Mission",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            color = Color.White, fontWeight = FontWeight.ExtraBold
+                        )
+                    )
+                    Text(
+                        "${minOf(wins, 2)}/2 ${if (complete) "✅" else ""}",
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            color = if (complete) Color(0xFF4CAF50) else Color(0xFFFFD700),
+                            fontWeight = FontWeight.Bold
+                        )
+                    )
+                }
+                Text(
+                    if (complete) "Completed! Come back tomorrow"
+                    else "Win 2 games vs AI to complete",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = if (complete) Color(0xFF4CAF50) else Color.White.copy(0.55f)
+                    )
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(Color.White.copy(0.12f))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth((wins / 2f).coerceIn(0f, 1f))
+                            .fillMaxHeight()
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(Color(0xFFFFD700), Color(0xFFFFA000))
+                                ),
+                                RoundedCornerShape(50)
+                            )
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ── Avatar Picker ──────────────────────────────────────────────────────────────
+
+private data class AvatarCategory(val title: String, val icon: String, val ids: List<Int>)
+
+private val AVATAR_CATEGORIES = listOf(
+    AvatarCategory("Free",        "🎁", listOf(0)),
+    AvatarCategory("Superheroes", "🦸", listOf(1, 2, 3, 4, 5, 6, 7)),
+    AvatarCategory("Royalty",     "👑", listOf(8, 9, 10, 11)),
+    AvatarCategory("Legends",     "🐉", listOf(12, 13, 14, 15, 16, 17)),
+    AvatarCategory("Elite",       "💎", listOf(18, 19, 20, 21, 22, 23))
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun AvatarPickerSheet(
+    playerStats: PlayerStats,
+    onSelect: (PlayerAvatar) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val avatarMap = remember { ALL_AVATARS.associateBy { it.id } }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor   = Color(0xFF0E0E24),
+        tonalElevation   = 0.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = 36.dp)
+        ) {
+            // Header
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Choose Avatar",
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        color = Color.White, fontWeight = FontWeight.ExtraBold
+                    )
+                )
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = Color(0xFFFFB300).copy(0.15f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFB300).copy(0.4f))
+                ) {
+                    Text(
+                        "🪙 ${playerStats.dotCoins}",
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            color = Color(0xFFFFB300), fontWeight = FontWeight.Bold
+                        )
+                    )
+                }
+            }
+
+            HorizontalDivider(color = Color.White.copy(0.06f), modifier = Modifier.padding(horizontal = 16.dp))
+            Spacer(Modifier.height(8.dp))
+
+            // Categories
+            AVATAR_CATEGORIES.forEach { category ->
+                val avatars = category.ids.mapNotNull { avatarMap[it] }
+
+                // Category header
+                Row(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(category.icon, fontSize = 16.sp)
+                    Text(
+                        category.title,
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            color = Color.White.copy(0.6f),
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 1.sp
+                        )
+                    )
+                    Box(
+                        modifier = Modifier
+                            .height(1.dp)
+                            .weight(1f)
+                            .background(Color.White.copy(0.08f))
+                    )
+                }
+
+                // Avatar grid (4 per row)
+                avatars.chunked(4).forEach { row ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 3.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        row.forEach { avatar ->
+                            AvatarCell(
+                                avatar     = avatar,
+                                isActive   = avatar.id == playerStats.activeAvatarId,
+                                isUnlocked = playerStats.isAvatarUnlocked(avatar.id),
+                                canAfford  = playerStats.dotCoins >= avatar.cost,
+                                modifier   = Modifier.weight(1f),
+                                onTap      = { onSelect(avatar) }
+                            )
+                        }
+                        repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
+                    }
+                }
+
+                Spacer(Modifier.height(4.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun AvatarCell(
+    avatar: PlayerAvatar,
+    isActive: Boolean,
+    isUnlocked: Boolean,
+    canAfford: Boolean,
+    modifier: Modifier,
+    onTap: () -> Unit
+) {
+    val bgColor = when {
+        isActive   -> Player1Blue.copy(0.25f)
+        isUnlocked -> Color.White.copy(0.07f)
+        else       -> Color.White.copy(0.03f)
+    }
+    val borderColor = when {
+        isActive   -> Player1Blue
+        isUnlocked -> Color.White.copy(0.15f)
+        canAfford  -> Color(0xFFFFB300).copy(0.3f)
+        else       -> Color.White.copy(0.05f)
+    }
+    val dim = !isUnlocked && !canAfford
+
+    Box(
+        modifier = modifier
+            .aspectRatio(1f)
+            .clip(RoundedCornerShape(14.dp))
+            .background(bgColor)
+            .border(if (isActive) 2.dp else 1.dp, borderColor, RoundedCornerShape(14.dp))
+            .clickable(enabled = isUnlocked || canAfford, onClick = onTap),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(6.dp)
+        ) {
+            Text(
+                avatar.emoji,
+                fontSize = 26.sp,
+                modifier = Modifier.alpha(if (dim) 0.25f else 1f)
+            )
+            Spacer(Modifier.height(3.dp))
+            when {
+                isActive   -> Text("✓ Active", fontSize = 8.sp,
+                    color = Player1Blue, fontWeight = FontWeight.ExtraBold)
+                isUnlocked -> Text("Owned", fontSize = 8.sp,
+                    color = Color.White.copy(0.35f))
+                canAfford  -> Text("🪙 ${avatar.cost}", fontSize = 8.sp,
+                    color = Color(0xFFFFB300), fontWeight = FontWeight.Bold)
+                else       -> Text("🔒 ${avatar.cost}", fontSize = 8.sp,
+                    color = Color.White.copy(0.2f))
+            }
+        }
+
+        // Active glow ring
+        if (isActive) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .border(2.dp, Player1Blue.copy(0.5f), RoundedCornerShape(14.dp))
+            )
+        }
+    }
+}

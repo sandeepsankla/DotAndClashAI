@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Join my Dot Clash AI game</title>
+  <style>
+    body { font-family: -apple-system, system-ui, sans-serif; background:#0D0D2B; color:#fff;
+           display:flex; min-height:100vh; margin:0; align-items:center; justify-content:center; text-align:center; }
+    .card { padding:32px; }
+    h1 { font-size:22px; }
+    .code { font-size:34px; font-weight:800; letter-spacing:4px; color:#FFD700; margin:12px 0 24px; }
+    a.btn { display:inline-block; background:#5C6BC0; color:#fff; text-decoration:none;
+            padding:14px 28px; border-radius:50px; font-weight:700; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🎮 Join my Dot Clash AI game</h1>
+    <div class="code" id="code">------</div>
+    <a class="btn" id="store"
+       href="https://play.google.com/store/apps/details?id=com.pixelplay.dotsboxes">Get the app</a>
+  </div>
+  <script>
+    // Extract ?code=XXXXXX
+    var code = new URLSearchParams(location.search).get('code') || '';
+    if (code) document.getElementById('code').textContent = code;
+    var store = 'https://play.google.com/store/apps/details?id=com.pixelplay.dotsboxes'
+                + '&referrer=' + encodeURIComponent('code=' + code);
+    document.getElementById('store').href = store;
+    // Try to open the app via custom scheme; if it doesn't, user taps "Get the app".
+    if (code) {
+      window.location.href = 'dotclash://join/' + code;
+    }
+  </script>
+</body>
+</html>

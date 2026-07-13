@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.pixelplay.dotsboxes.ai.AIFactory
 import com.pixelplay.dotsboxes.ai.HardAI
 import com.pixelplay.dotsboxes.domain.model.*
+import com.pixelplay.dotsboxes.analytics.Analytics
 import com.pixelplay.dotsboxes.domain.repository.GameRepository
 import com.pixelplay.dotsboxes.domain.usecase.DrawLineUseCase
 import com.pixelplay.dotsboxes.presentation.util.ShareCardGenerator
@@ -30,10 +31,24 @@ data class GameUiState(
     val levelNumber: Int?            = null,
     /** Vibration haptic on/off */
     val isVibrationEnabled: Boolean  = true,
-    /** AI's last played line — shown with cyan spotlight for 2 seconds */
-    val aiLastLine: LineId?          = null,
+    /** Last drawn line (any player/mode) — pulsing highlight for 2 seconds */
+    val lastMoveHighlight: LineId?   = null,
     /** Move countdown for timed levels (Level 8); null = no timer */
-    val moveTimerSeconds: Int?       = null
+    val moveTimerSeconds: Int?       = null,
+    /** Coins bursting from winner boxes (phase 1 of end animation) */
+    val showWinCoinBurst: Boolean    = false,
+    /** Show XP result screen (phase 2, after coin burst) */
+    val showXpScreen: Boolean        = false,
+    /** XP earned this game (for display in XP screen) */
+    val xpEarned: Int                = 0,
+    /** DotCoins earned this game (for display in XP screen) */
+    val coinsToCollect: Int          = 0,
+    /** 👑 Crown / 🎁 Mystery box positions on this board (PVA only) */
+    val specialBoxes: SpecialBoxes   = SpecialBoxes(),
+    /** Non-null when the human just captured a special box → show reward popup */
+    val specialReward: SpecialRewardEvent? = null,
+    /** True right after the 2nd daily win → offer a free Lucky Spin */
+    val dailyMissionSpinEarned: Boolean = false
 )
 
 data class GameConfig(
@@ -61,6 +76,11 @@ class GameViewModel(
     private var tutorialJob: Job? = null
     // Prevents init's DataStore restore from overriding an already-started game
     @Volatile private var gameExplicitlyStarted = false
+    // When the current game started — used to skip interstitials after very short games
+    private var gameStartMs = 0L
+
+    /** True if the last game lasted long enough to justify showing an interstitial. */
+    fun wasLongGame(): Boolean = System.currentTimeMillis() - gameStartMs >= 20_000L
 
     init {
         viewModelScope.launch {
@@ -75,7 +95,12 @@ class GameViewModel(
         }
         viewModelScope.launch {
             repository.observeStats().collect { stats ->
-                _ui.update { it.copy(playerStats = stats) }
+                sound.setMuted(!stats.soundEnabled)
+                _ui.update { it.copy(
+                    playerStats        = stats,
+                    isMuted            = !stats.soundEnabled,
+                    isVibrationEnabled = stats.vibrationEnabled
+                ) }
             }
         }
     }
@@ -92,16 +117,27 @@ class GameViewModel(
             p1Name     = config.p1Name,
             p2Name     = config.p2Name
         )
+        // Special reward boxes — only vs AI, and not on the level-1 tutorial
+        val special = if (config.mode == GameMode.PVA && config.levelNumber != 1)
+            generateSpecialBoxes(config.gridSize) else SpecialBoxes()
         _ui.update { it.copy(
-            gameState          = state,
-            isAiThinking       = false,
-            lastLine           = null,
-            playerJustLost     = false,
-            hintMove           = null,
-            levelNumber        = config.levelNumber,
-            aiLastLine         = null,
-            moveTimerSeconds   = null
+            gameState        = state,
+            isAiThinking     = false,
+            lastLine         = null,
+            playerJustLost   = false,
+            hintMove         = null,
+            levelNumber      = config.levelNumber,
+            lastMoveHighlight       = null,
+            moveTimerSeconds = null,
+            showWinCoinBurst = false,
+            showXpScreen     = false,
+            xpEarned         = 0,
+            coinsToCollect   = 0,
+            specialBoxes     = special,
+            specialReward    = null
         ) }
+        gameStartMs = System.currentTimeMillis()
+        Analytics.gameStart(config.mode.name, config.difficulty.name, config.gridSize, config.levelNumber)
         persist(state)
         triggerAiIfNeeded(state)
         // Level 1: tutorial auto-hints; Level 8: move timer
@@ -136,6 +172,85 @@ class GameViewModel(
         _ui.update { it.copy(isVibrationEnabled = !it.isVibrationEnabled) }
     }
 
+    /** Change the active board theme mid-game (persists to stats). */
+    fun setSkin(skin: BoardSkin) {
+        viewModelScope.launch {
+            val current = repository.observeStats().first()
+            repository.saveStats(current.withActiveSkin(skin))
+        }
+    }
+
+    fun dismissSpecialReward() {
+        _ui.update { it.copy(specialReward = null) }
+    }
+
+    /** Add bonus coins (e.g. from "Watch Ad → 2× Coins"). */
+    fun addBonusCoins(n: Int) {
+        if (n <= 0) return
+        viewModelScope.launch {
+            val cur = repository.observeStats().first()
+            repository.saveStats(cur.earnDotCoins(n))
+        }
+    }
+
+    fun dismissDailyMissionSpin() {
+        _ui.update { it.copy(dailyMissionSpinEarned = false) }
+    }
+
+    /**
+     * Detect special boxes captured by the human in this move, award their rewards,
+     * and return (updated special-box set, event to show). No-op for AI / PvP moves.
+     */
+    private fun handleSpecialCaptures(before: GameState, after: GameState): Pair<SpecialBoxes, SpecialRewardEvent?> {
+        var special = _ui.value.specialBoxes
+        val mover   = before.currentPlayer
+        if (special.isEmpty || before.gameMode != GameMode.PVA || mover != PlayerType.ONE) {
+            return special to null
+        }
+        var event: SpecialRewardEvent? = null
+        for (r in 0 until after.gridSize) for (c in 0 until after.gridSize) {
+            if (before.boxes[r][c] == null && after.boxes[r][c] == mover) {
+                when {
+                    special.isCrown(r, c) -> {
+                        special = special.without(r, c)
+                        event   = SpecialRewardEvent.Crown
+                        awardCrown()
+                    }
+                    special.isMystery(r, c) -> {
+                        val reward = rollMysteryReward()
+                        special = special.without(r, c)
+                        event   = SpecialRewardEvent.Mystery(reward)
+                        awardMystery(reward)
+                    }
+                }
+            }
+        }
+        return special to event
+    }
+
+    private fun awardCrown() {
+        sound.playBoxComplete()
+        Analytics.crownCaptured("offline")
+        viewModelScope.launch {
+            val cur = repository.observeStats().first()
+            repository.saveStats(cur.addSpin())
+        }
+    }
+
+    private fun awardMystery(reward: MysteryReward) {
+        Analytics.mysteryOpened("offline", reward.kind.name)
+        viewModelScope.launch {
+            val cur = repository.observeStats().first()
+            val updated = when (reward.kind) {
+                MysteryKind.COINS, MysteryKind.JACKPOT -> cur.earnDotCoins(reward.amount)
+                MysteryKind.XP      -> cur.copy(xp = cur.xp + reward.amount)
+                MysteryKind.HINTS   -> cur.earnHints(reward.amount)
+                MysteryKind.NOTHING -> cur
+            }
+            repository.saveStats(updated)
+        }
+    }
+
     private fun applyLine(lineId: LineId) {
         // Cancel any running timer/tutorial — player acted
         timerJob?.cancel()
@@ -148,31 +263,58 @@ class GameViewModel(
         val newState = drawLine(state, lineId) ?: return
 
         if (scored) sound.playBoxComplete() else sound.playLineDraw()
+
+        // 👑/🎁 special box captures (human only) → award + popup
+        val (updatedSpecial, specialEvent) = handleSpecialCaptures(state, newState)
         val humanLost = newState.isGameOver &&
             newState.gameMode == GameMode.PVA &&
             newState.winner == PlayerType.TWO
+        val humanWon = newState.isGameOver &&
+            (newState.winner == PlayerType.ONE ||
+             (newState.gameMode == GameMode.PVP && newState.winner != null))
+        // 2 DotCoins per box captured by P1 (or P1 side in PVP)
+        val coinsEarned = if (humanWon) newState.p1Score * 2 else 0
+        // XP awarded matches afterResult() values
+        val xpThisGame = if (newState.isGameOver) when (newState.winner) {
+            PlayerType.ONE -> 50
+            null           -> 25
+            else           -> 15
+        } else 0
 
         if (newState.isGameOver) {
+            val resultStr = when (newState.winner) {
+                PlayerType.ONE -> "win"; null -> "tie"; else -> "lose"
+            }
+            Analytics.gameEnd(newState.gameMode.name, resultStr, newState.p1Score, newState.p2Score)
             triggerWinSound(newState)
-            persistStats(newState)
+            persistStats(newState, coinsEarned)
+            // Phase 1: coin burst on board for 1.4s, then XP screen
+            viewModelScope.launch {
+                delay(1400L)
+                _ui.update { it.copy(showWinCoinBurst = false, showXpScreen = true) }
+            }
         }
 
         _ui.update { it.copy(
-            gameState      = newState,
-            lastLine       = lineId,
-            playerJustLost = humanLost,
-            aiLastLine     = if (isAiMove) lineId else null,
-            hintMove       = null
+            gameState         = newState,
+            lastLine          = lineId,
+            playerJustLost    = humanLost,
+            lastMoveHighlight = lineId,        // highlight for ALL players/modes
+            hintMove          = null,
+            showWinCoinBurst  = newState.isGameOver,
+            showXpScreen      = false,
+            xpEarned          = xpThisGame,
+            coinsToCollect    = coinsEarned,
+            specialBoxes      = updatedSpecial,
+            specialReward     = specialEvent ?: it.specialReward
         ) }
         persist(newState)
 
-        // Auto-clear AI move spotlight after 2 seconds
-        if (isAiMove) {
-            aiGlowJob?.cancel()
-            aiGlowJob = viewModelScope.launch {
-                delay(2000L)
-                _ui.update { it.copy(aiLastLine = null) }
-            }
+        // Auto-clear last move highlight after 2 seconds
+        aiGlowJob?.cancel()
+        aiGlowJob = viewModelScope.launch {
+            delay(2000L)
+            _ui.update { it.copy(lastMoveHighlight = null) }
         }
 
         triggerAiIfNeeded(newState)
@@ -186,7 +328,7 @@ class GameViewModel(
         }
     }
 
-    private fun persistStats(finishedState: GameState) {
+    private fun persistStats(finishedState: GameState, coinsEarned: Int = 0) {
         val result = when {
             finishedState.winner == null -> GameResult.TIE
             finishedState.winner == PlayerType.ONE -> GameResult.WIN
@@ -197,12 +339,29 @@ class GameViewModel(
         viewModelScope.launch {
             val current = repository.observeStats().first()
             var updated = current.afterResult(result, difficulty)
-            // Campaign level complete — unlock next level, award hint bonus
             if (result == GameResult.WIN && currentLevel != null) {
                 updated = updated.afterLevelComplete(currentLevel)
+                Analytics.levelComplete(currentLevel)
+            }
+            if (result == GameResult.WIN) {
+                val wasComplete = current.dailyTaskComplete
+                updated = updated.withDailyWin()
+                // Just hit the 2-win daily target → reward a free Lucky Spin
+                if (!wasComplete && updated.dailyTaskComplete) {
+                    updated = updated.addSpin()
+                    Analytics.dailyMissionComplete()
+                    _ui.update { it.copy(dailyMissionSpinEarned = true) }
+                }
+            }
+            if (coinsEarned > 0) {
+                updated = updated.earnDotCoins(coinsEarned)
             }
             repository.saveStats(updated)
         }
+    }
+
+    fun dismissXpScreen() {
+        _ui.update { it.copy(showXpScreen = false) }
     }
 
     // ── Hint system (Hard mode) ───────────────────────────────────────────────
@@ -303,7 +462,7 @@ class GameViewModel(
         aiJob = viewModelScope.launch {
             _ui.update { it.copy(isAiThinking = true) }
             delay(450L)
-            val consecLosses = _ui.value.playerStats.consecutiveLossesHard
+            val consecLosses = _ui.value.playerStats.consecutiveLossesAi
             val ai = AIFactory.create(state.difficulty, consecLosses)
             val move = ai.getBestMove(state)
             _ui.update { it.copy(isAiThinking = false) }
