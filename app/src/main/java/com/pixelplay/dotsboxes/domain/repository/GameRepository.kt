@@ -11,4 +11,7 @@ interface GameRepository {
 
     fun observeStats(): Flow<PlayerStats>
     suspend fun saveStats(stats: PlayerStats)
+
+    /** Wipe all locally stored data (used on account deletion). */
+    suspend fun clearAllLocalData()
 }

@@ -48,4 +48,9 @@ class GameDataStore(private val context: Context) {
     suspend fun saveStats(stats: PlayerStats) {
         context.dataStore.edit { it[KEY_STATS] = json.encodeToString(stats) }
     }
+
+    /** Wipe ALL locally stored data (coins, XP, progress, saved game) — used on account deletion. */
+    suspend fun clearAll() {
+        context.dataStore.edit { it.clear() }
+    }
 }

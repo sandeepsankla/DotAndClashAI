@@ -345,7 +345,13 @@ private fun WatchAdHintsCard(onEarned: () -> Unit) {
                         com.pixelplay.dotsboxes.analytics.Analytics.adWatched("rewarded", "store_hints")
                         onEarned()
                     },
-                    onFailed  = { }
+                    onFailed  = {
+                        android.widget.Toast.makeText(
+                            context, "Ad not ready yet — please try again in a moment.",
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                        app.rewardedAd.preload()
+                    }
                 )
             }
         },

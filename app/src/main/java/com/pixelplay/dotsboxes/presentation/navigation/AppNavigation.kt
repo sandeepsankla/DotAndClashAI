@@ -195,6 +195,19 @@ fun AppNavigation() {
                         val current = app.gameRepository.observeStats().first()
                         app.gameRepository.saveStats(current.copy(vibrationEnabled = enabled))
                     }
+                },
+                onDeleteAccount = {
+                    scope.launch {
+                        // Server-side: leaderboard entries + Firebase Auth record.
+                        app.firebaseManager.deleteAccount()
+                        // Local device data: coins, XP, progress, saved game.
+                        app.gameRepository.clearAllLocalData()
+                        // Ensure fully signed out even if auth delete needed a recent login.
+                        app.firebaseManager.signOut()
+                        navController.navigate(Screen.Home.route) {
+                            popUpTo(Screen.Home.route) { inclusive = true }
+                        }
+                    }
                 }
             )
         }

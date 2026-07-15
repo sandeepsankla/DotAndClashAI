@@ -54,6 +54,35 @@ class FirebaseManager {
 
     fun signOut() = auth.signOut()
 
+    /**
+     * Permanently delete the signed-in user's account and server-side data:
+     *  1. Remove their leaderboard entries across all day buckets.
+     *  2. Delete the Firebase Auth record (uid + email from Google sign-in).
+     *
+     * Best-effort: leaderboard cleanup runs first so PII is removed even if the
+     * auth delete needs a recent re-login. Local device data (coins/XP/progress)
+     * is wiped separately by the caller.
+     */
+    suspend fun deleteAccount(): Result<Unit> = runCatching {
+        val user = auth.currentUser ?: error("Not signed in")
+        val uid  = user.uid
+
+        // 1. Remove this user's leaderboard entries (name + score) from every day bucket.
+        runCatching {
+            val root = db.child("flash_leaderboard").get().await()
+            root.children.forEach { dayBucket ->
+                val dayKey = dayBucket.key ?: return@forEach
+                if (dayBucket.hasChild(uid)) {
+                    db.child("flash_leaderboard").child(dayKey).child(uid)
+                        .removeValue().await()
+                }
+            }
+        }
+
+        // 2. Delete the auth account itself.
+        user.delete().await()
+    }
+
     suspend fun updateDisplayName(name: String) {
         val update = com.google.firebase.auth.userProfileChangeRequest {
             displayName = name

@@ -344,7 +344,14 @@ fun XpResultScreen(
                                 com.pixelplay.dotsboxes.analytics.Analytics.adWatched("rewarded", "double_coins")
                                 onDoubleCoins()
                             },
-                            onFailed   = {}
+                            onFailed   = {
+                                // Don't fail silently — tell the user and reload for next tap.
+                                android.widget.Toast.makeText(
+                                    ctx, "Ad not ready yet — please try again in a moment.",
+                                    android.widget.Toast.LENGTH_SHORT
+                                ).show()
+                                bonusApp.rewardedAd.preload()
+                            }
                         )
                     },
                     modifier       = Modifier.fillMaxWidth().height(54.dp)

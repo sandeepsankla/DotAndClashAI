@@ -32,9 +32,15 @@ else
 
 // ── Initializer (call once in DotsBoxesApp) ───────────────────────────────────
 
-fun initAdMob(context: Context) {
+/**
+ * Initialize the Mobile Ads SDK. [onInitialized] runs on the main thread once the SDK
+ * is ready — preload ads there, NOT before, otherwise the first load races the init and
+ * silently fails (leaving rewarded/interstitial null so buttons appear to do nothing).
+ */
+fun initAdMob(context: Context, onInitialized: () -> Unit = {}) {
     MobileAds.initialize(context) {
         Log.d("AdMob", "Initialized")
+        onInitialized()
     }
 }
 

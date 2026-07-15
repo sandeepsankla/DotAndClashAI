@@ -21,3 +21,7 @@ captures/
 .DS_Store
 Thumbs.db
 .kotlin/
+
+# Signing (never commit)
+release-key.jks
+keystore.properties

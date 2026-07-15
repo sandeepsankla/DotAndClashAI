@@ -40,7 +40,8 @@ fun ProfileScreen(
     onRateUs: () -> Unit,
     onEditName: (String) -> Unit,
     onToggleSound: (Boolean) -> Unit = {},
-    onToggleVibration: (Boolean) -> Unit = {}
+    onToggleVibration: (Boolean) -> Unit = {},
+    onDeleteAccount: () -> Unit = {}
 ) {
     val isDark = isSystemInDarkTheme()
     val bgGradient = if (isDark)
@@ -57,8 +58,9 @@ fun ProfileScreen(
         PlayerLevel.LEGEND   -> Color(0xFFFFD700)
     }
 
-    var showEditDialog by remember { mutableStateOf(false) }
-    var editNameInput  by remember { mutableStateOf(playerStats.playerName) }
+    var showEditDialog   by remember { mutableStateOf(false) }
+    var editNameInput    by remember { mutableStateOf(playerStats.playerName) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         bottomBar = { com.pixelplay.dotsboxes.presentation.ads.BannerAdView() },
@@ -448,6 +450,20 @@ fun ProfileScreen(
                     }
                 }
 
+                // ── Delete account ────────────────────────────────────────────
+                TextButton(
+                    onClick  = { showDeleteDialog = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        "Delete Account & Data",
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            color = MaterialTheme.colorScheme.error,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    )
+                }
+
                 // ── App version ───────────────────────────────────────────────
                 Text(
                     "Dot Clash AI  v${BuildConfig.VERSION_NAME}",
@@ -486,6 +502,38 @@ fun ProfileScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showEditDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // ── Delete account confirmation ───────────────────────────────────────────
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            icon   = { Text("⚠️", fontSize = 28.sp) },
+            title  = { Text("Delete Account?", fontWeight = FontWeight.Bold) },
+            text   = {
+                Text(
+                    "This permanently deletes your account and data:\n\n" +
+                    "• Your sign-in (name, email)\n" +
+                    "• Leaderboard entries\n" +
+                    "• Coins, XP, and all game progress\n\n" +
+                    "This cannot be undone."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteDialog = false
+                        onDeleteAccount()
+                    }
+                ) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") }
             }
         )
     }

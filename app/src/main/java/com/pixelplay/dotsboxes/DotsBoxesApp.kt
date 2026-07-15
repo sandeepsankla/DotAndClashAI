@@ -34,9 +34,12 @@ class DotsBoxesApp : Application() {
         FirebaseCrashlytics.getInstance().setCrashlyticsCollectionEnabled(true)
         Analytics.init(this)
         com.pixelplay.dotsboxes.config.RemoteConfig.init()
-        initAdMob(this)
-        interstitialAd.preload()
-        rewardedAd.preload()
+        // Preload only AFTER the SDK finishes initializing — loading earlier races the
+        // async init and silently fails, leaving ads null (buttons then do nothing).
+        initAdMob(this) {
+            interstitialAd.preload()
+            rewardedAd.preload()
+        }
         NotificationScheduler.schedule(this)
         if (BuildConfig.DEBUG) {
             NotificationScheduler.scheduleDebugTest(this)

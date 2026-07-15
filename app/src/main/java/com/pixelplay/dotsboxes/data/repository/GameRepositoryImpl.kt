@@ -16,4 +16,6 @@ class GameRepositoryImpl(
 
     override fun observeStats(): Flow<PlayerStats> = dataStore.observeStats()
     override suspend fun saveStats(stats: PlayerStats) = dataStore.saveStats(stats)
+
+    override suspend fun clearAllLocalData() = dataStore.clearAll()
 }
