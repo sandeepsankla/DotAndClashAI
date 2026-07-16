@@ -29,20 +29,32 @@ class DotsBoxesApp : Application() {
     /** Room code from an incoming invite deep link (dotclash://join/CODE or https link). */
     var pendingInviteCode by mutableStateOf<String?>(null)
 
+    @Volatile private var adsStarted = false
+
     override fun onCreate() {
         super.onCreate()
         FirebaseCrashlytics.getInstance().setCrashlyticsCollectionEnabled(true)
         Analytics.init(this)
         com.pixelplay.dotsboxes.config.RemoteConfig.init()
-        // Preload only AFTER the SDK finishes initializing — loading earlier races the
-        // async init and silently fails, leaving ads null (buttons then do nothing).
-        initAdMob(this) {
-            interstitialAd.preload()
-            rewardedAd.preload()
-        }
+        // NOTE: ads are initialized in startAds(), called from MainActivity only AFTER
+        // UMP consent is gathered (GDPR) — so we never request ads before consent.
         NotificationScheduler.schedule(this)
         if (BuildConfig.DEBUG) {
             NotificationScheduler.scheduleDebugTest(this)
+        }
+    }
+
+    /**
+     * Initialize the Mobile Ads SDK and preload ads. Called once, after UMP consent has
+     * been resolved. Preloading only inside the init callback avoids racing the async
+     * init (which would silently leave ads null).
+     */
+    fun startAds() {
+        if (adsStarted) return
+        adsStarted = true
+        initAdMob(this) {
+            interstitialAd.preload()
+            rewardedAd.preload()
         }
     }
 }

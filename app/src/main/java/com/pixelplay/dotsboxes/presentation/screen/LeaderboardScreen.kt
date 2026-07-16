@@ -39,10 +39,17 @@ private val BgBottom = Color(0xFF141430)
 fun LeaderboardScreen(
     firebase: FirebaseManager,
     myUid: String,
+    myName: String = "",
     onBack: () -> Unit
 ) {
     var entries by remember { mutableStateOf<List<LeaderboardEntry>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+
+    // Keep today's leaderboard entry in sync with the current profile name (older
+    // entries were saved under a previous/default name like "Player").
+    LaunchedEffect(myName) {
+        if (myName.isNotBlank()) firebase.updateFlashScoreName(myName)
+    }
 
     LaunchedEffect(Unit) {
         firebase.listenLeaderboard()
@@ -133,13 +140,13 @@ fun LeaderboardScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         if (entries.isNotEmpty()) {
-                            item { PodiumRow(entries.take(3), myUid) }
+                            item { PodiumRow(entries.take(3), myUid, myName) }
                             item { Spacer(Modifier.height(8.dp)) }
                         }
 
                         itemsIndexed(entries.drop(if (entries.size >= 3) 3 else 0)) { idx, entry ->
                             val rank = idx + (if (entries.size >= 3) 4 else 1)
-                            LeaderboardRow(rank = rank, entry = entry, isMe = entry.uid == myUid)
+                            LeaderboardRow(rank = rank, entry = entry, isMe = entry.uid == myUid, myName = myName)
                         }
 
                         val myRank = entries.indexOfFirst { it.uid == myUid }
@@ -148,7 +155,7 @@ fun LeaderboardScreen(
                                 Spacer(Modifier.height(8.dp))
                                 HorizontalDivider(color = Color.White.copy(0.1f))
                                 Spacer(Modifier.height(8.dp))
-                                LeaderboardRow(rank = myRank + 1, entry = entries[myRank], isMe = true)
+                                LeaderboardRow(rank = myRank + 1, entry = entries[myRank], isMe = true, myName = myName)
                             }
                         }
 
@@ -163,7 +170,7 @@ fun LeaderboardScreen(
 // ── Podium (top 3) ─────────────────────────────────────────────────────────────
 
 @Composable
-private fun PodiumRow(top3: List<LeaderboardEntry>, myUid: String) {
+private fun PodiumRow(top3: List<LeaderboardEntry>, myUid: String, myName: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -171,9 +178,9 @@ private fun PodiumRow(top3: List<LeaderboardEntry>, myUid: String) {
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.Bottom
     ) {
-        if (top3.size >= 2) PodiumItem(top3[1], rank = 2, height = 80.dp, color = Silver, isMe = top3[1].uid == myUid)
-        PodiumItem(top3[0], rank = 1, height = 110.dp, color = Gold, isMe = top3[0].uid == myUid)
-        if (top3.size >= 3) PodiumItem(top3[2], rank = 3, height = 60.dp, color = Bronze, isMe = top3[2].uid == myUid)
+        if (top3.size >= 2) PodiumItem(top3[1], rank = 2, height = 80.dp, color = Silver, isMe = top3[1].uid == myUid, myName = myName)
+        PodiumItem(top3[0], rank = 1, height = 110.dp, color = Gold, isMe = top3[0].uid == myUid, myName = myName)
+        if (top3.size >= 3) PodiumItem(top3[2], rank = 3, height = 60.dp, color = Bronze, isMe = top3[2].uid == myUid, myName = myName)
     }
 }
 
@@ -183,9 +190,11 @@ private fun PodiumItem(
     rank: Int,
     height: Dp,
     color: Color,
-    isMe: Boolean
+    isMe: Boolean,
+    myName: String = ""
 ) {
     val medal = when (rank) { 1 -> "🥇"; 2 -> "🥈"; else -> "🥉" }
+    val displayName = if (isMe && myName.isNotBlank()) myName else entry.name
     Column(
         modifier = Modifier.widthIn(max = 110.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -204,7 +213,7 @@ private fun PodiumItem(
             }
         }
         Text(
-            entry.name,
+            displayName,
             style = MaterialTheme.typography.labelMedium.copy(
                 color = Color.White, fontWeight = FontWeight.Bold
             ),
@@ -239,7 +248,8 @@ private fun PodiumItem(
 // ── Single row ─────────────────────────────────────────────────────────────────
 
 @Composable
-private fun LeaderboardRow(rank: Int, entry: LeaderboardEntry, isMe: Boolean) {
+private fun LeaderboardRow(rank: Int, entry: LeaderboardEntry, isMe: Boolean, myName: String = "") {
+    val displayName = if (isMe && myName.isNotBlank()) myName else entry.name
     val medal     = when (rank) { 1 -> "🥇"; 2 -> "🥈"; 3 -> "🥉"; else -> null }
     val rankColor = when (rank) { 1 -> Gold; 2 -> Silver; 3 -> Bronze; else -> Player1Blue }
     val rowBg = if (isMe)
@@ -293,7 +303,7 @@ private fun LeaderboardRow(rank: Int, entry: LeaderboardEntry, isMe: Boolean) {
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    entry.name.take(1).uppercase().ifBlank { "?" },
+                    displayName.take(1).uppercase().ifBlank { "?" },
                     style = MaterialTheme.typography.titleMedium.copy(
                         color = Color.White,
                         fontWeight = FontWeight.ExtraBold
@@ -308,7 +318,7 @@ private fun LeaderboardRow(rank: Int, entry: LeaderboardEntry, isMe: Boolean) {
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        entry.name,
+                        displayName,
                         modifier = Modifier.weight(1f, fill = false),
                         style = MaterialTheme.typography.bodyLarge.copy(
                             color = Color.White,

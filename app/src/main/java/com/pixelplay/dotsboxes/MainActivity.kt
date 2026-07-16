@@ -10,14 +10,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import com.google.android.ump.ConsentRequestParameters
+import com.google.android.ump.UserMessagingPlatform
 import com.pixelplay.dotsboxes.presentation.navigation.AppNavigation
-import com.pixelplay.dotsboxes.presentation.screen.AppSplashScreen
 import com.pixelplay.dotsboxes.presentation.theme.DotsBoxesTheme
 
 class MainActivity : ComponentActivity() {
@@ -25,11 +23,17 @@ class MainActivity : ComponentActivity() {
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* no-op */ }
 
+    // Keeps the system splash (branded logo) on screen through app startup until Compose
+    // has drawn the splash art — so there's no blank gap during a slow cold start.
+    @Volatile private var contentReady = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
-        installSplashScreen()
+        val splash = installSplashScreen()
+        splash.setKeepOnScreenCondition { !contentReady }
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        gatherConsentThenStartAds()
         handleInviteLink(intent)
 
         // Ask notification permission on Android 13+
@@ -44,12 +48,9 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             DotsBoxesTheme {
-                var showSplash by rememberSaveable { mutableStateOf(true) }
-                if (showSplash) {
-                    AppSplashScreen(onDone = { showSplash = false })
-                } else {
-                    AppNavigation()
-                }
+                // First composition -> release the branded system splash (D-C logo) straight to Home.
+                LaunchedEffect(Unit) { contentReady = true }
+                AppNavigation()
             }
         }
     }
@@ -58,6 +59,28 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleInviteLink(intent)
+    }
+
+    /**
+     * GDPR/EEA consent via the User Messaging Platform. Requests the latest consent info,
+     * shows the consent form when required (EEA/UK), and only then starts the Ads SDK —
+     * so ads are never requested before consent. Non-EEA users see no form and ads start
+     * normally. startAds() is idempotent, so calling it in multiple paths is safe.
+     */
+    private fun gatherConsentThenStartAds() {
+        val app = application as DotsBoxesApp
+        val consentInformation = UserMessagingPlatform.getConsentInformation(this)
+        val params = ConsentRequestParameters.Builder().build()
+        consentInformation.requestConsentInfoUpdate(this, params, {
+            UserMessagingPlatform.loadAndShowConsentFormIfRequired(this) {
+                if (consentInformation.canRequestAds()) app.startAds()
+            }
+        }, {
+            // Consent update failed (e.g. offline) — non-EEA users can still get ads.
+            if (consentInformation.canRequestAds()) app.startAds()
+        })
+        // Returning users who already have a valid consent choice can start ads immediately.
+        if (consentInformation.canRequestAds()) app.startAds()
     }
 
     /** Parse a room code from an invite deep link and stash it for AppNavigation. */

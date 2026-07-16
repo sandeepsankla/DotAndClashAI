@@ -346,9 +346,11 @@ fun AppNavigation() {
         // ── Leaderboard ───────────────────────────────────────────────────────
         composable(Screen.Leaderboard.route) {
             val myUid = app.firebaseManager.currentUser?.uid ?: ""
+            val lbStats by app.gameRepository.observeStats().collectAsState(initial = PlayerStats())
             LeaderboardScreen(
                 firebase = app.firebaseManager,
                 myUid    = myUid,
+                myName   = lbStats.playerName,
                 onBack   = safePop
             )
         }

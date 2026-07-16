@@ -110,6 +110,8 @@ dependencies {
 
     // AdMob
     implementation("com.google.android.gms:play-services-ads:23.1.0")
+    // User Messaging Platform — GDPR/EEA consent before requesting ads
+    implementation("com.google.android.ump:user-messaging-platform:2.2.0")
 
     // Firebase (BOM pins all versions)
     implementation(platform("com.google.firebase:firebase-bom:33.1.0"))

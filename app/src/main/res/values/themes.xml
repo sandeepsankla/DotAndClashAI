@@ -2,16 +2,17 @@
 <resources>
     <!-- Base application theme — Compose manages everything, this just disables legacy ActionBar -->
     <style name="Theme.DotsAndBoxes" parent="Theme.SplashScreen">
-        <item name="android:windowBackground">#0A0A18</item>
-        <!-- Android 12+ system splash: dark bg + a transparent icon, so NO launcher
-             icon flashes before AppSplashScreen shows the full branded image. -->
-        <item name="windowSplashScreenBackground">#0A0A18</item>
-        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_transparent</item>
-        <item name="windowSplashScreenIconBackgroundColor">#0A0A18</item>
+        <!-- Android 12+ system splash: the clean D-C logo centered on the icon's dark
+             background. Held on screen (setKeepOnScreenCondition) through startup, then
+             goes straight to Home — no second full-image splash, no blank screen. -->
+        <item name="android:windowBackground">@color/ic_launcher_background</item>
+        <item name="windowSplashScreenBackground">@color/ic_launcher_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <item name="windowSplashScreenIconBackgroundColor">@color/ic_launcher_background</item>
         <item name="postSplashScreenTheme">@style/Theme.DotsAndBoxes.Main</item>
     </style>
 
     <style name="Theme.DotsAndBoxes.Main" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowBackground">@color/ic_launcher_background</item>
     </style>
 </resources>
