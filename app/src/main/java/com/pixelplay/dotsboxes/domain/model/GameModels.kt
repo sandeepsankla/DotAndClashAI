@@ -114,7 +114,10 @@ data class PlayerStats(
     val onlineGamesToday: Int      = 0,
     val lastOnlineEpochDay: Long   = -1L,
     // Hints expire 2 days after last hint activity (use-it-or-lose-it)
-    val hintsExpiryEpochDay: Long  = -1L
+    val hintsExpiryEpochDay: Long  = -1L,
+    // Bell notifications: ids read today + the day they belong to (auto-resets next day)
+    val readNotifIds: Set<String>  = emptySet(),
+    val notifEpochDay: Long        = -1L
 ) {
     // ── Computed helpers ──────────────────────────────────────────────────────
 
@@ -255,6 +258,18 @@ data class PlayerStats(
         return if (lastDailyWinsEpochDay == today) dailyWinsCount else 0
     }
     val dailyTaskComplete: Boolean get() = todayWins >= 2
+
+    // ── Bell notifications (read-state auto-resets each day) ────────────────────
+    /** Ids already read today; empty on a new day. */
+    val notifReadToday: Set<String> get() =
+        if (notifEpochDay == todayEpoch()) readNotifIds else emptySet()
+
+    /** Mark a notification read — it disappears for the rest of today, returns next day. */
+    fun withNotifRead(id: String): PlayerStats {
+        val today = todayEpoch()
+        val base  = if (notifEpochDay == today) readNotifIds else emptySet()
+        return copy(readNotifIds = base + id, notifEpochDay = today)
+    }
 
     fun withDailyWin(): PlayerStats {
         val today = todayEpoch()

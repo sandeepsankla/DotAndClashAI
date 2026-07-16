@@ -10,9 +10,14 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.pixelplay.dotsboxes.presentation.navigation.AppNavigation
+import com.pixelplay.dotsboxes.presentation.screen.AppSplashScreen
 import com.pixelplay.dotsboxes.presentation.theme.DotsBoxesTheme
 
 class MainActivity : ComponentActivity() {
@@ -39,7 +44,12 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             DotsBoxesTheme {
-                AppNavigation()
+                var showSplash by rememberSaveable { mutableStateOf(true) }
+                if (showSplash) {
+                    AppSplashScreen(onDone = { showSplash = false })
+                } else {
+                    AppNavigation()
+                }
             }
         }
     }

@@ -90,6 +90,23 @@ class FirebaseManager {
         auth.currentUser?.updateProfile(update)?.await()
     }
 
+    /**
+     * Update today's leaderboard display name for the signed-in user, if they already
+     * have an entry. Leaderboard entries store the name at submit-time, so a later
+     * profile-name change wouldn't otherwise reflect until they replay.
+     */
+    suspend fun updateFlashScoreName(newName: String) {
+        runCatching {
+            val uid    = auth.currentUser?.uid ?: return@runCatching
+            val dayKey = java.util.concurrent.TimeUnit.MILLISECONDS
+                .toDays(System.currentTimeMillis()).toString()
+            val ref = db.child("flash_leaderboard").child(dayKey).child(uid)
+            if (ref.get().await().exists()) {
+                ref.child("name").setValue(newName).await()
+            }
+        }
+    }
+
     // ── Room CRUD ─────────────────────────────────────────────────────────────
 
     /** Creates a room and returns the 6-char code */

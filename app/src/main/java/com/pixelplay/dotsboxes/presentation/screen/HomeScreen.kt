@@ -42,6 +42,16 @@ import com.pixelplay.dotsboxes.presentation.viewmodel.GameConfig
 import kotlin.math.cos
 import kotlin.math.sin
 
+/** One message shown in the bell notification popup. */
+private data class HomeNotification(
+    val id: String,
+    val emoji: String,
+    val title: String,
+    val subtitle: String,
+    val actionLabel: String? = null,
+    val onAction: (() -> Unit)? = null
+)
+
 @Composable
 fun HomeScreen(
     playerStats: PlayerStats,
@@ -53,8 +63,8 @@ fun HomeScreen(
     onProfile: () -> Unit,
     onFlashChallenge: () -> Unit,
     onLeaderboard: () -> Unit = {},
-    onNotifications: () -> Unit = {},
     onOpenSpin: () -> Unit = {},
+    onNotificationRead: (String) -> Unit = {},
     onSkinSelected: (BoardSkin) -> Unit,
     onStartGame: (GameConfig) -> Unit
 ) {
@@ -68,10 +78,49 @@ fun HomeScreen(
     val mode       = GameMode.entries[modeOrdinal]
     val difficulty = Difficulty.entries[difficultyOrdinal]
 
+    // ── Bell notifications: messages derived from state, minus ones read today.
+    // Reading (tapping) a message removes it for the rest of the day; it returns
+    // next day if still relevant (read-state resets daily in PlayerStats).
+    var showNotifications by remember { mutableStateOf(false) }
+    val readToday = playerStats.notifReadToday
+    val notifications = buildList {
+        if (playerStats.pendingSpins > 0) add(
+            HomeNotification(
+                id          = "spins",
+                emoji       = "🎡",
+                title       = "${playerStats.pendingSpins} free spin${if (playerStats.pendingSpins > 1) "s" else ""} waiting",
+                subtitle    = "Spin the lucky wheel to win rewards",
+                actionLabel = "Spin",
+                onAction    = onOpenSpin
+            )
+        )
+        if (!playerStats.dailyTaskComplete) add(
+            HomeNotification(
+                id          = "mission",
+                emoji       = "🎯",
+                title       = "Daily Mission: ${playerStats.todayWins}/2 wins",
+                subtitle    = "Win ${2 - playerStats.todayWins} more vs AI for a free spin",
+                actionLabel = "Play",
+                onAction    = onCampaign
+            )
+        )
+        if (playerStats.hintCoins > 0 && playerStats.hintsExpiryDaysLeft in 0..1) add(
+            HomeNotification(
+                id       = "hints",
+                emoji    = "⏳",
+                title    = "${playerStats.hintCoins} hint${if (playerStats.hintCoins > 1) "s" else ""} expiring soon",
+                subtitle = if (playerStats.hintsExpiryDaysLeft <= 0)
+                    "They expire today — use them in Hard mode!"
+                else
+                    "They expire tomorrow — use them in Hard mode!"
+            )
+        )
+    }.filterNot { it.id in readToday }
+
     val isDark = isSystemInDarkTheme()
 
-    val bgStart = if (isDark) Color(0xFF0D0D2B) else Color(0xFFF0EEFF)
-    val bgEnd   = if (isDark) Color(0xFF1A0060) else Color(0xFFDDD5FF)
+    val bgStart = if (isDark) Color(0xFF232049) else Color(0xFFF0EEFF)
+    val bgEnd   = if (isDark) Color(0xFF362191) else Color(0xFFDDD5FF)
 
     // Animate background dots
     val dotAnim by rememberInfiniteTransition(label = "dots").animateFloat(
@@ -95,7 +144,7 @@ fun HomeScreen(
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        listOf(bgStart.copy(alpha = 0.92f), bgEnd.copy(alpha = 0.88f))
+                        listOf(bgStart, bgEnd)
                     )
                 )
         )
@@ -159,8 +208,9 @@ fun HomeScreen(
 
             // ── Flash Challenge + Daily Task ──────────────────────────────────
             FlashChallengeCard(
-                playerStats  = playerStats,
-                onClick      = onFlashChallenge
+                playerStats    = playerStats,
+                onClick        = onFlashChallenge,
+                onDailyMission = onCampaign
             )
 
             // ── Stats Card ────────────────────────────────────────────────────
@@ -395,17 +445,98 @@ fun HomeScreen(
                     }
                 }
             }
-            // Notification bell
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.onBackground.copy(0.08f))
-                    .clickable { onNotifications() },
-                contentAlignment = Alignment.Center
-            ) {
-                Text("🔔", fontSize = 18.sp)
+            // Notification bell (with unread badge). Outer Box is NOT clipped so the
+            // badge can overflow the circular button.
+            Box(contentAlignment = Alignment.Center) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.onBackground.copy(0.08f))
+                        .clickable { showNotifications = true },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("🔔", fontSize = 18.sp)
+                }
+                if (notifications.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = 3.dp, y = (-3).dp)
+                            .size(18.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFE53935)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "${notifications.size}",
+                            color      = Color.White,
+                            fontSize   = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
             }
+        }
+
+        // ── Bell notification popup ────────────────────────────────────────────
+        if (showNotifications) {
+            AlertDialog(
+                onDismissRequest = { showNotifications = false },
+                confirmButton = {
+                    TextButton(onClick = { showNotifications = false }) { Text("Close") }
+                },
+                title = { Text("🔔  Notifications", fontWeight = FontWeight.Bold) },
+                text = {
+                    if (notifications.isEmpty()) {
+                        Text("You're all caught up! 🎉")
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            notifications.forEach { n ->
+                                Row(
+                                    // Tapping reads (deletes) the message; if it has an
+                                    // action, also runs it and closes the popup.
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            onNotificationRead(n.id)
+                                            if (n.onAction != null) {
+                                                showNotifications = false
+                                                n.onAction.invoke()
+                                            }
+                                        },
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Text(n.emoji, fontSize = 24.sp)
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            n.title,
+                                            style = MaterialTheme.typography.bodyLarge.copy(
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        )
+                                        Text(
+                                            n.subtitle,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(0.6f)
+                                        )
+                                    }
+                                    Text(
+                                        n.actionLabel ?: "Dismiss",
+                                        color      = if (n.actionLabel != null)
+                                            MaterialTheme.colorScheme.primary
+                                        else
+                                            MaterialTheme.colorScheme.onSurface.copy(0.5f),
+                                        fontWeight = FontWeight.Bold,
+                                        style      = MaterialTheme.typography.labelLarge
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            )
         }
 
         // ── Banner ad (bottom) ────────────────────────────────────────────────
@@ -1161,11 +1292,12 @@ private fun chipColors() = FilterChipDefaults.filterChipColors(
 @Composable
 private fun FlashChallengeCard(
     playerStats: PlayerStats,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onDailyMission: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         FlashChallengeBox(playerStats = playerStats, onClick = onClick)
-        DailyMissionBox(playerStats = playerStats)
+        DailyMissionBox(playerStats = playerStats, onClick = onDailyMission)
     }
 }
 
@@ -1237,17 +1369,19 @@ private fun FlashChallengeBox(
 // ── Box 2: Daily Mission (win 2 vs AI) ─────────────────────────────────────────
 
 @Composable
-private fun DailyMissionBox(playerStats: PlayerStats) {
+private fun DailyMissionBox(playerStats: PlayerStats, onClick: () -> Unit = {}) {
     val wins     = playerStats.todayWins
     val complete = playerStats.dailyTaskComplete
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
             .background(
                 Brush.horizontalGradient(listOf(Color(0xFF2A1A00), Color(0xFF1A2000))),
                 RoundedCornerShape(20.dp)
             )
+            .clickable(enabled = !complete, onClick = onClick)
             .padding(16.dp)
     ) {
         Row(

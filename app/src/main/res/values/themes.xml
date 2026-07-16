@@ -2,7 +2,12 @@
 <resources>
     <!-- Base application theme — Compose manages everything, this just disables legacy ActionBar -->
     <style name="Theme.DotsAndBoxes" parent="Theme.SplashScreen">
-        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:windowBackground">#0A0A18</item>
+        <!-- Android 12+ system splash: dark bg + a transparent icon, so NO launcher
+             icon flashes before AppSplashScreen shows the full branded image. -->
+        <item name="windowSplashScreenBackground">#0A0A18</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_transparent</item>
+        <item name="windowSplashScreenIconBackgroundColor">#0A0A18</item>
         <item name="postSplashScreenTheme">@style/Theme.DotsAndBoxes.Main</item>
     </style>
 

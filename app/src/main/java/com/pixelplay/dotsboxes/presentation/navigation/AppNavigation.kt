@@ -149,8 +149,13 @@ fun AppNavigation() {
                 onOnline           = { navController.navigate(Screen.Login.route) },
                 onFlashChallenge   = { navController.navigate(Screen.FlashChallenge.route) },
                 onLeaderboard      = { navController.navigate(Screen.Leaderboard.route) },
-                onNotifications    = { navController.navigate(Screen.FlashChallenge.route) },
                 onOpenSpin         = { navController.navigate(Screen.LuckySpin.route) },
+                onNotificationRead = { id ->
+                    scope.launch {
+                        val current = app.gameRepository.observeStats().first()
+                        app.gameRepository.saveStats(current.withNotifRead(id))
+                    }
+                },
                 onSkinSelected = { skin ->
                     scope.launch {
                         val current = app.gameRepository.observeStats().first()
@@ -182,6 +187,9 @@ fun AppNavigation() {
                     scope.launch {
                         val current = app.gameRepository.observeStats().first()
                         app.gameRepository.saveStats(current.copy(playerName = newName))
+                        // Reflect the new name on the online profile + today's leaderboard entry.
+                        app.firebaseManager.updateDisplayName(newName)
+                        app.firebaseManager.updateFlashScoreName(newName)
                     }
                 },
                 onToggleSound = { enabled ->
